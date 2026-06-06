@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+#
+# htb - cliente de terminal para HackTheBox (API v4 actual)
+# Pensado para first blood: spawn rapido, IP al instante y subida de flags.
+#
+# Token: se lee de $HTB_TOKEN o, si no, de ~/.config/htb/token
+# Requisitos: curl, jq, python3 (solo para algun parseo puntual)
+
+set -o pipefail
+
+# ---------------- Colores ----------------
+g="\e[0;32m\033[1m"; r="\e[0;31m\033[1m"; b="\e[0;34m\033[1m"
+y="\e[0;33m\033[1m"; c="\e[0;36m\033[1m"; e="\033[0m\e[0m"
+
+# ---------------- Config -----------------
+API="https://labs.hackthebox.com/api/v4"
+TOKEN_FILE="${HTB_TOKEN_FILE:-$HOME/.config/htb/token}"
+UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+VPN_FILE="${HTB_VPN_FILE:-$HOME/Desktop/c4sh3r/HTB/vpn/c4sh/VIP/machines_eu-dedivip-5.ovpn}"
+
+if [ -z "$HTB_TOKEN" ] && [ -f "$TOKEN_FILE" ]; then
+    HTB_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
+fi
+if [ -z "$HTB_TOKEN" ]; then
+    echo -e "${r}[!] No hay token. Ponlo en \$HTB_TOKEN o en $TOKEN_FILE${e}" >&2
+    exit 1
+fi
+
+# ---------------- Helpers HTTP -----------------
+# api METHOD PATH [json_body]
+api() {
+    local method="$1" path="$2" body="$3"
+    if [ -n "$body" ]; then
+        curl -s --max-time 40 -X "$method" "$API$path" \
+            -H "Authorization: Bearer $HTB_TOKEN" \
+            -H "User-Agent: $UA" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -d "$body"
+    else
+        curl -s --max-time 40 -X "$method" "$API$path" \
+            -H "Authorization: Bearer $HTB_TOKEN" \
+            -H "User-Agent: $UA" \
+            -H "Accept: application/json"
+    fi
+}
+
+die() { echo -e "${r}[!] $*${e}" >&2; exit 1; }
+
+# Resuelve un identificador (id numerico o nombre) a un ID de maquina.
+# Busca primero en season machines (releases) y luego en el listado general.
+resolve_id() {
+    local q="$1"
+    if [[ "$q" =~ ^[0-9]+$ ]]; then echo "$q"; return 0; fi
+    # season machines (la release de la noche suele estar aqui)
+    local id
+    id=$(api GET "/season/machines" | jq -r --arg n "$q" \
+        '.data[]? | select(.name != null) | select(.name|ascii_downcase == ($n|ascii_downcase)) | .id' | head -1)
+    if [ -n "$id" ] && [ "$id" != "null" ]; then echo "$id"; return 0; fi
+    # busqueda global por nombre exacto
+    id=$(api GET "/machine/paginated?per_page=100" | jq -r --arg n "$q" \
+        '.data[]? | select(.name != null) | select(.name|ascii_downcase == ($n|ascii_downcase)) | .id' | head -1)
+    if [ -n "$id" ] && [ "$id" != "null" ]; then echo "$id"; return 0; fi
+    # endpoint de busqueda libre de HTB
+    id=$(api GET "/search/fetch?query=$q&tags=%5B%22machines%22%5D" 2>/dev/null \
+        | jq -r --arg n "$q" '.machines[]? | select(.value|ascii_downcase == ($n|ascii_downcase)) | .id' 2>/dev/null | head -1)
+    [ -n "$id" ] && [ "$id" != "null" ] && { echo "$id"; return 0; }
+    return 1
+}
+
+# ID de la maquina actualmente spawneada (la que tienes activa)
+active_id() {
+    api GET "/machine/active" | jq -r '.info.id // empty'
+}
+
+# ---------------- Comandos -----------------
+
+cmd_whoami() {
+    api GET "/user/info" | jq -r '.info | "Usuario: \(.name)  (id \(.id))\nVIP: \(.canAccessVIP)  Server: \(.server_id)"'
+}
+
+cmd_list() {
+    local n="${1:-15}"
+    echo -e "${c}== Ultimas $n maquinas (mas recientes primero) ==${e}"
+    api GET "/machine/paginated?per_page=$n" \
+        | jq -r '.data | sort_by(.release) | reverse | .[]
+            | "\(.id)\t\(.name)\t\(.os)\t\(.difficultyText)\t\(.release[0:10])\tU:\(.authUserInUserOwns) R:\(.authUserInRootOwns)"' \
+        | column -t -s$'\t'
+}
+
+cmd_season() {
+    echo -e "${c}== Maquinas de la season activa ==${e}"
+    api GET "/season/machines" \
+        | jq -r '.data[]? | "\(.id)\t\(.name)\t\(.os)\t\(.difficulty_text)\trel:\(.release_time[0:10])\treleased:\(.is_released)\tUblood:\(.is_user_blood) Rblood:\(.is_root_blood)"' \
+        | column -t -s$'\t'
+}
+
+# Maquina mas reciente (para detectar la release de la noche)
+cmd_latest() {
+    api GET "/machine/paginated?per_page=20" \
+        | jq -r '.data | sort_by(.release) | reverse | .[0]
+            | "Mas reciente:\n  ID:         \(.id)\n  Nombre:     \(.name)\n  OS:         \(.os)\n  Dificultad: \(.difficultyText)\n  Release:    \(.release)\n  Activa:     \(.active)"'
+}
+
+cmd_info() {
+    local id; id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
+    api GET "/machine/profile/$id" | jq '.info | {id,name,os,difficultyText,ip,points,release,active,authUserInUserOwns,authUserInRootOwns}'
+}
+
+cmd_active() {
+    local out; out=$(api GET "/machine/active")
+    if [ "$(echo "$out" | jq -r '.info')" = "null" ]; then
+        echo -e "${y}[*] No tienes ninguna maquina spawneada.${e}"
+    else
+        echo "$out" | jq -r '.info | "Activa: \(.name) (id \(.id))\nIP: \(.ip)\nExpira: \(.expires_at // "n/a")"'
+    fi
+}
+
+# spawn <name|id>
+cmd_spawn() {
+    [ -z "$1" ] && die "Uso: htb spawn <nombre|id>"
+    local id; id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
+    echo -e "${y}[*] Spawneando maquina id $id ...${e}"
+    local out; out=$(api POST "/vm/spawn" "{\"machine_id\": $id}")
+    local msg; msg=$(echo "$out" | jq -r '.message // .error // .')
+    echo -e "${g}[+] $msg${e}"
+    echo -e "${y}[*] Esperando IP...${e}"
+    cmd_ip "$id"
+}
+
+# stop / terminate
+cmd_stop() {
+    local id; id="${1:-$(active_id)}"
+    [ -z "$id" ] && die "No hay maquina activa que parar"
+    [[ "$id" =~ ^[0-9]+$ ]] || id=$(resolve_id "$id") || die "No encuentro '$1'"
+    local out; out=$(api POST "/vm/terminate" "{\"machine_id\": $id}")
+    echo -e "${g}[+] $(echo "$out" | jq -r '.message // .')${e}"
+}
+
+cmd_reset() {
+    local id; id="${1:-$(active_id)}"
+    [ -z "$id" ] && die "No hay maquina activa que resetear"
+    [[ "$id" =~ ^[0-9]+$ ]] || id=$(resolve_id "$id") || die "No encuentro '$1'"
+    local out; out=$(api POST "/vm/reset" "{\"machine_id\": $id}")
+    echo -e "${g}[+] $(echo "$out" | jq -r '.message // .')${e}"
+}
+
+# ip [name|id] -> espera a que la maquina activa tenga IP y la imprime
+cmd_ip() {
+    local id="${1:-$(active_id)}"
+    [ -n "$id" ] && [[ ! "$id" =~ ^[0-9]+$ ]] && id=$(resolve_id "$id")
+    local i ip
+    for i in $(seq 1 40); do
+        ip=$(api GET "/machine/active" | jq -r '.info.ip // empty')
+        if [ -n "$ip" ] && [ "$ip" != "null" ]; then
+            echo -e "${g}[+] IP: $ip${e}"
+            echo "$ip" | tr -d '\n' | xclip -selection clipboard 2>/dev/null && echo -e "${b}    (copiada al portapapeles)${e}"
+            return 0
+        fi
+        sleep 2
+    done
+    echo -e "${r}[!] La maquina aun no tiene IP (sigue arrancando). Reintenta: htb ip${e}"
+    return 1
+}
+
+# own <flag> [user|root] [diff]  -> sube flag a la maquina ACTIVA (auto)
+# tambien: own <name|id> <flag> [diff]
+cmd_own() {
+    local id flag diff="50"
+    if [ -n "$2" ] && [[ ! "$1" =~ ^[a-f0-9]{30,}$ ]]; then
+        # forma: own <name|id> <flag> [diff]
+        id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
+        flag="$2"; [ -n "$3" ] && diff="$3"
+    else
+        # forma: own <flag> [diff] -> usa maquina activa
+        flag="$1"; [ -n "$2" ] && diff="$2"
+        id=$(active_id)
+        [ -z "$id" ] && die "No hay maquina activa. Usa: htb own <nombre> <flag>"
+    fi
+    [ -z "$flag" ] && die "Falta la flag"
+    echo -e "${y}[*] Enviando flag a maquina id $id (difficulty $diff)...${e}"
+    local out; out=$(api POST "/machine/own" "{\"flag\":\"$flag\",\"id\":$id,\"difficulty\":$diff}")
+    local msg; msg=$(echo "$out" | jq -r '.message // .status // .')
+    if echo "$msg" | grep -qiE "incorrect|invalid|wrong|not found|error|can ?not|cannot|accessed"; then
+        echo -e "${r}[!] $msg${e}"; return 1
+    else
+        echo -e "${g}[+] $msg${e}"
+    fi
+}
+
+cmd_vpn() {
+    local out="${1:-htb.ovpn}"
+    echo -e "${y}[*] Descargando VPN en $out ...${e}"
+    curl -s --max-time 60 "$API/access/ovpnfile/0/0" \
+        -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" -o "$out"
+    if [ -s "$out" ] && head -1 "$out" | grep -q "client"; then
+        echo -e "${g}[+] VPN guardada en $out${e}"
+    else
+        echo -e "${r}[!] No se pudo descargar (revisa el servidor VPN seleccionado en la web).${e}"
+        head -c 200 "$out"; echo
+    fi
+}
+
+# Conecta la VPN (dedivip) en background y comprueba tun0
+cmd_connect() {
+    local f="${1:-$VPN_FILE}"
+    [ -f "$f" ] || die "No existe el .ovpn: $f"
+    if ip a show tun0 &>/dev/null; then
+        echo -e "${g}[+] Ya hay tun0 levantado: $(ip -4 a show tun0 | awk '/inet/{print $2}')${e}"
+        return 0
+    fi
+    echo -e "${y}[*] Conectando VPN con $f (sudo)...${e}"
+    local SP="$HOME/.config/htb/sudo.pass"
+    if [ -f "$SP" ]; then
+        sudo -S -k openvpn --config "$f" --daemon --log /tmp/htb_vpn.log < "$SP"
+    else
+        sudo openvpn --config "$f" --daemon --log /tmp/htb_vpn.log
+    fi
+    local i
+    for i in $(seq 1 15); do
+        sleep 1
+        if ip a show tun0 &>/dev/null; then
+            echo -e "${g}[+] VPN arriba: $(ip -4 a show tun0 | awk '/inet/{print $2}')${e}"
+            return 0
+        fi
+    done
+    echo -e "${r}[!] tun0 no aparece. Mira /tmp/htb_vpn.log${e}"; tail -5 /tmp/htb_vpn.log
+}
+
+cmd_vpnstatus() {
+    if ip a show tun0 &>/dev/null; then
+        echo -e "${g}[+] VPN conectada: $(ip -4 a show tun0 | awk '/inet/{print $2}')${e}"
+    else
+        echo -e "${r}[!] Sin tun0 (VPN desconectada). Usa: htb connect${e}"
+    fi
+}
+
+usage() {
+    cat <<EOF
+$(echo -e "${g}htb${e}") - cliente HackTheBox (API v4)
+
+  htb whoami                 Quien eres (token check)
+  htb list [N]               Ultimas N maquinas (default 15)
+  htb latest                 La maquina mas reciente (release de hoy)
+  htb season                 Maquinas de la season activa
+  htb info <nombre|id>       Info de una maquina
+  htb active                 Maquina spawneada ahora mismo + IP
+  htb spawn <nombre|id>      Spawnea y espera la IP
+  htb ip [nombre|id]         Espera/imprime la IP de la maquina activa
+  htb stop [nombre|id]       Para la maquina (activa por defecto)
+  htb reset [nombre|id]      Resetea la maquina
+  htb own <flag> [diff]              Sube flag a la maquina ACTIVA
+  htb own <nombre|id> <flag> [diff]  Sube flag a una maquina concreta
+  htb vpn [archivo.ovpn]     Descarga tu config VPN desde la API
+  htb connect [archivo]      Conecta la VPN (dedivip) y comprueba tun0
+  htb vpnstatus              Comprueba si tun0 esta arriba
+
+Flag rapida (first blood): primero 'htb spawn X', luego pegas user y root:
+  htb own <hash_user>
+  htb own <hash_root>
+EOF
+}
+
+# ---------------- Dispatch -----------------
+cmd="$1"; shift 2>/dev/null
+case "$cmd" in
+    whoami)        cmd_whoami "$@" ;;
+    list|ls)       cmd_list "$@" ;;
+    latest|new)    cmd_latest "$@" ;;
+    season)        cmd_season "$@" ;;
+    info)          cmd_info "$@" ;;
+    active)        cmd_active "$@" ;;
+    spawn|deploy)  cmd_spawn "$@" ;;
+    ip)            cmd_ip "$@" ;;
+    stop|kill|terminate) cmd_stop "$@" ;;
+    reset)         cmd_reset "$@" ;;
+    own|flag|submit) cmd_own "$@" ;;
+    vpn)           cmd_vpn "$@" ;;
+    connect)       cmd_connect "$@" ;;
+    vpnstatus)     cmd_vpnstatus "$@" ;;
+    ""|-h|--help|help) usage ;;
+    *) echo -e "${r}[!] Comando desconocido: $cmd${e}"; usage; exit 1 ;;
+esac
