@@ -14,9 +14,10 @@ y="\e[0;33m\033[1m"; c="\e[0;36m\033[1m"; e="\033[0m\e[0m"
 
 # ---------------- Config -----------------
 API="https://labs.hackthebox.com/api/v4"
+API_V5="https://labs.hackthebox.com/api/v5"   # /machine/own migro aqui (v4 retirado)
 TOKEN_FILE="${HTB_TOKEN_FILE:-$HOME/.config/htb/token}"
 UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
-VPN_FILE="${HTB_VPN_FILE:-$HOME/Desktop/c4sh3r/HTB/vpn/c4sh/VIP/machines_eu-dedivip-5.ovpn}"
+VPN_FILE="${HTB_VPN_FILE:-$HOME/Desktop/c4sh3r/HTB/vpn/c4sh/VIP/htb.ovpn}"
 
 if [ -z "$HTB_TOKEN" ] && [ -f "$TOKEN_FILE" ]; then
     HTB_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
@@ -39,6 +40,24 @@ api() {
             -d "$body"
     else
         curl -s --max-time 40 -X "$method" "$API$path" \
+            -H "Authorization: Bearer $HTB_TOKEN" \
+            -H "User-Agent: $UA" \
+            -H "Accept: application/json"
+    fi
+}
+
+# Igual que api() pero contra la API v5 (de momento solo /machine/own vive ahi)
+api5() {
+    local method="$1" path="$2" body="$3"
+    if [ -n "$body" ]; then
+        curl -s --max-time 40 -X "$method" "$API_V5$path" \
+            -H "Authorization: Bearer $HTB_TOKEN" \
+            -H "User-Agent: $UA" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -d "$body"
+    else
+        curl -s --max-time 40 -X "$method" "$API_V5$path" \
             -H "Authorization: Bearer $HTB_TOKEN" \
             -H "User-Agent: $UA" \
             -H "Accept: application/json"
@@ -179,7 +198,7 @@ cmd_own() {
     fi
     [ -z "$flag" ] && die "Falta la flag"
     echo -e "${y}[*] Enviando flag a maquina id $id (difficulty $diff)...${e}"
-    local out; out=$(api POST "/machine/own" "{\"flag\":\"$flag\",\"id\":$id,\"difficulty\":$diff}")
+    local out; out=$(api5 POST "/machine/own" "{\"flag\":\"$flag\",\"id\":$id,\"difficulty\":$diff}")
     local msg; msg=$(echo "$out" | jq -r '.message // .status // .')
     if echo "$msg" | grep -qiE "incorrect|invalid|wrong|not found|error|can ?not|cannot|accessed"; then
         echo -e "${r}[!] $msg${e}"; return 1
@@ -227,6 +246,31 @@ cmd_connect() {
     echo -e "${r}[!] tun0 no aparece. Mira /tmp/htb_vpn.log${e}"; tail -5 /tmp/htb_vpn.log
 }
 
+# Desconecta la VPN: mata el proceso openvpn y espera a que tun0 desaparezca
+cmd_disconnect() {
+    if ! ip a show tun0 &>/dev/null && ! pgrep -x openvpn &>/dev/null; then
+        echo -e "${y}[*] No hay VPN conectada (sin tun0 ni proceso openvpn).${e}"
+        return 0
+    fi
+    echo -e "${y}[*] Desconectando VPN (sudo)...${e}"
+    local SP="$HOME/.config/htb/sudo.pass"
+    if [ -f "$SP" ]; then
+        sudo -S -k pkill -x openvpn < "$SP"
+    else
+        sudo pkill -x openvpn
+    fi
+    local i
+    for i in $(seq 1 15); do
+        if ! ip a show tun0 &>/dev/null && ! pgrep -x openvpn &>/dev/null; then
+            echo -e "${g}[+] VPN desconectada (tun0 abajo).${e}"
+            return 0
+        fi
+        sleep 1
+    done
+    echo -e "${r}[!] tun0 sigue arriba. Revisa procesos: pgrep -a openvpn${e}"
+    return 1
+}
+
 cmd_vpnstatus() {
     if ip a show tun0 &>/dev/null; then
         echo -e "${g}[+] VPN conectada: $(ip -4 a show tun0 | awk '/inet/{print $2}')${e}"
@@ -253,6 +297,7 @@ $(echo -e "${g}htb${e}") - cliente HackTheBox (API v4)
   htb own <nombre|id> <flag> [diff]  Sube flag a una maquina concreta
   htb vpn [archivo.ovpn]     Descarga tu config VPN desde la API
   htb connect [archivo]      Conecta la VPN (dedivip) y comprueba tun0
+  htb disconnect             Desconecta la VPN (mata openvpn, espera tun0 abajo)
   htb vpnstatus              Comprueba si tun0 esta arriba
 
 Flag rapida (first blood): primero 'htb spawn X', luego pegas user y root:
@@ -277,6 +322,7 @@ case "$cmd" in
     own|flag|submit) cmd_own "$@" ;;
     vpn)           cmd_vpn "$@" ;;
     connect)       cmd_connect "$@" ;;
+    disconnect|dc) cmd_disconnect "$@" ;;
     vpnstatus)     cmd_vpnstatus "$@" ;;
     ""|-h|--help|help) usage ;;
     *) echo -e "${r}[!] Comando desconocido: $cmd${e}"; usage; exit 1 ;;

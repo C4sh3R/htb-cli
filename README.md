@@ -1,6 +1,6 @@
 # htb — Cliente de terminal para HackTheBox
 
-> CLI minimalista en Bash para HackTheBox usando la **API v4 oficial**. Diseñado para ir rápido: spawnea máquinas, coge la IP, manda flags — sin salir de la terminal.
+> CLI minimalista en Bash para HackTheBox usando la **API oficial** (v4, con v5 para el envío de flags). Diseñado para ir rápido: spawnea máquinas, coge la IP, manda flags — sin salir de la terminal.
 
 ```
 htb spawn Connected      →  spawnea la máquina, espera la IP y la copia al portapapeles
@@ -61,6 +61,8 @@ export HTB_TOKEN="eyJ0eXAiOiJKV1..."
 
 ### VPN por defecto
 
+> ⚠️ **Importante:** la ruta de la VPN es personal — depende de dónde tengas guardado tu `.ovpn`. La variable `VPN_FILE` al principio del script apunta a la ruta del autor, así que **cámbiala por la tuya** (o usa `HTB_VPN_FILE`), o pásale el archivo directamente a `htb connect /ruta/a/tu.ovpn`.
+
 ```bash
 export HTB_VPN_FILE="/ruta/a/tu/machines.ovpn"
 ```
@@ -93,6 +95,7 @@ htb <comando> [argumentos]
 | `htb own <nombre\|id> <flag> [dif]` | Sube una flag a una máquina concreta |
 | `htb vpn [archivo]` | Descarga tu config VPN desde la API |
 | `htb connect [archivo]` | Conecta la VPN y verifica `tun0` |
+| `htb disconnect` | Desconecta la VPN (mata `openvpn`, espera a que `tun0` baje) |
 | `htb vpnstatus` | Comprueba si `tun0` está activo |
 
 ---
@@ -279,8 +282,10 @@ htb vpn ~/vpn/eu-vip.ovpn
 
 Conecta la VPN con `openvpn --daemon` y espera hasta 15 segundos a que `tun0` suba.
 
+> La ruta por defecto depende de dónde tengas tu `.ovpn`. Si no pasas archivo, usa `VPN_FILE`/`HTB_VPN_FILE` — asegúrate de haberla puesto a tu ruta (ver [VPN por defecto](#vpn-por-defecto)). También puedes pasar el archivo directamente:
+
 ```
-$ htb connect
+$ htb connect ~/vpn/mi-config.ovpn
 [*] Conectando VPN con /ruta/machines.ovpn (sudo)...
 [+] VPN arriba: 10.10.14.5/23
 ```
@@ -290,6 +295,18 @@ Si guardas tu contraseña de sudo en `~/.config/htb/sudo.pass`, la conexión es 
 ```bash
 echo "tu_password_sudo" > ~/.config/htb/sudo.pass
 chmod 600 ~/.config/htb/sudo.pass
+```
+
+---
+
+### `htb disconnect`
+
+Corta la VPN: mata el proceso `openvpn` y espera hasta 15 segundos a que `tun0` desaparezca. Usa `~/.config/htb/sudo.pass` si existe para no pedir contraseña.
+
+```
+$ htb disconnect
+[*] Desconectando VPN (sudo)...
+[+] VPN desconectada (tun0 abajo).
 ```
 
 ---
@@ -326,6 +343,7 @@ htb own <hash_root>
 
 # 6. Limpiar
 htb stop
+htb disconnect   # cortar la VPN al terminar
 ```
 
 ---
