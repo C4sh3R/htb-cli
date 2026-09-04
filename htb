@@ -13,19 +13,28 @@ g="\e[0;32m\033[1m"; r="\e[0;31m\033[1m"; b="\e[0;34m\033[1m"
 y="\e[0;33m\033[1m"; c="\e[0;36m\033[1m"; e="\033[0m\e[0m"
 
 # ---------------- Config -----------------
+HTB_VERSION="1.1.0"
+
 API="https://labs.hackthebox.com/api/v4"
 API_V5="https://labs.hackthebox.com/api/v5"   # /machine/own migro aqui (v4 retirado)
 TOKEN_FILE="${HTB_TOKEN_FILE:-$HOME/.config/htb/token}"
 UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 VPN_FILE="${HTB_VPN_FILE:-$HOME/Desktop/c4sh3r/HTB/vpn/c4sh/VIP/htb.ovpn}"
+# PID del openvpn lanzado por htb (para no tocar otras VPNs del sistema)
+PID_FILE="${HTB_VPN_PID_FILE:-/run/htb-openvpn.pid}"
 
 if [ -z "$HTB_TOKEN" ] && [ -f "$TOKEN_FILE" ]; then
     HTB_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
 fi
-if [ -z "$HTB_TOKEN" ]; then
-    echo -e "${r}[!] No hay token. Ponlo en \$HTB_TOKEN o en $TOKEN_FILE${e}" >&2
-    exit 1
-fi
+# version y ayuda no necesitan token; el resto si
+case "${1:-}" in
+    version|--version|-V|-h|--help|help|"") ;;
+    *)
+        if [ -z "$HTB_TOKEN" ]; then
+            echo -e "${r}[!] No hay token. Ponlo en \$HTB_TOKEN o en $TOKEN_FILE${e}" >&2
+            exit 1
+        fi ;;
+esac
 
 # ---------------- Helpers HTTP -----------------
 # api METHOD PATH [json_body]
@@ -220,6 +229,38 @@ cmd_vpn() {
     fi
 }
 
+# Ejecuta un comando como root, usando la pass guardada si existe
+as_root() {
+    local SP="$HOME/.config/htb/sudo.pass"
+    if [ -f "$SP" ]; then
+        sudo -S -k "$@" < "$SP"
+    else
+        sudo "$@"
+    fi
+}
+
+# Imprime el PID del openvpn lanzado por htb, si sigue vivo y es un openvpn real
+htb_vpn_pid() {
+    local pid
+    [ -r "$PID_FILE" ] || return 1
+    pid=$(tr -dc '0-9' < "$PID_FILE")
+    [ -n "$pid" ] || return 1
+    [ -d "/proc/$pid" ] || return 1
+    [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = "openvpn" ] || return 1
+    echo "$pid"
+}
+
+# PIDs de openvpn cuya linea de comandos usa el .ovpn indicado
+# (fallback para VPNs levantadas por htb antes de que existiera el pidfile)
+openvpn_pids_for_config() {
+    local f="$1" pid
+    for pid in $(pgrep -x openvpn 2>/dev/null); do
+        if tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -qxF "$f"; then
+            echo "$pid"
+        fi
+    done
+}
+
 # Conecta la VPN (dedivip) en background y comprueba tun0
 cmd_connect() {
     local f="${1:-$VPN_FILE}"
@@ -229,12 +270,10 @@ cmd_connect() {
         return 0
     fi
     echo -e "${y}[*] Conectando VPN con $f (sudo)...${e}"
-    local SP="$HOME/.config/htb/sudo.pass"
-    if [ -f "$SP" ]; then
-        sudo -S -k openvpn --config "$f" --daemon --log /tmp/htb_vpn.log < "$SP"
-    else
-        sudo openvpn --config "$f" --daemon --log /tmp/htb_vpn.log
-    fi
+    as_root openvpn --config "$f" \
+        --daemon \
+        --writepid "$PID_FILE" \
+        --log /tmp/htb_vpn.log
     local i
     for i in $(seq 1 15); do
         sleep 1
@@ -246,42 +285,66 @@ cmd_connect() {
     echo -e "${r}[!] tun0 no aparece. Mira /tmp/htb_vpn.log${e}"; tail -5 /tmp/htb_vpn.log
 }
 
-# Desconecta la VPN: mata el proceso openvpn y espera a que tun0 desaparezca
+# Desconecta SOLO la VPN que levanto htb (por PID), nunca otras sesiones openvpn
 cmd_disconnect() {
-    if ! ip a show tun0 &>/dev/null && ! pgrep -x openvpn &>/dev/null; then
-        echo -e "${y}[*] No hay VPN conectada (sin tun0 ni proceso openvpn).${e}"
+    local f="${1:-$VPN_FILE}" pid pids n i
+
+    pid=$(htb_vpn_pid) || pid=""
+
+    # Sin pidfile valido: intenta identificar el openvpn por su .ovpn
+    if [ -z "$pid" ]; then
+        pids=$(openvpn_pids_for_config "$f")
+        n=$(printf '%s\n' "$pids" | grep -c .)
+        if [ "$n" -eq 1 ]; then
+            pid="$pids"
+        elif [ "$n" -gt 1 ]; then
+            echo -e "${r}[!] Hay $n procesos openvpn usando $f. No mato ninguno por seguridad.${e}" >&2
+            pgrep -a -x openvpn >&2
+            return 1
+        fi
+    fi
+
+    if [ -z "$pid" ]; then
+        if pgrep -x openvpn &>/dev/null; then
+            echo -e "${y}[*] Hay openvpn corriendo, pero ninguno lo lanzo htb.${e}"
+            echo -e "${y}    No toco VPNs ajenas. Procesos actuales:${e}"
+            pgrep -a -x openvpn
+            return 1
+        fi
+        echo -e "${y}[*] No hay VPN de htb conectada.${e}"
         return 0
     fi
-    echo -e "${y}[*] Desconectando VPN (sudo)...${e}"
-    local SP="$HOME/.config/htb/sudo.pass"
-    if [ -f "$SP" ]; then
-        sudo -S -k pkill -x openvpn < "$SP"
-    else
-        sudo pkill -x openvpn
-    fi
-    local i
+
+    echo -e "${y}[*] Desconectando VPN de htb (pid $pid, sudo)...${e}"
+    as_root kill "$pid"
     for i in $(seq 1 15); do
-        if ! ip a show tun0 &>/dev/null && ! pgrep -x openvpn &>/dev/null; then
-            echo -e "${g}[+] VPN desconectada (tun0 abajo).${e}"
+        if [ ! -d "/proc/$pid" ]; then
+            as_root rm -f "$PID_FILE"
+            echo -e "${g}[+] VPN desconectada (pid $pid terminado).${e}"
+            ip a show tun0 &>/dev/null && echo -e "${y}[*] Ojo: tun0 sigue arriba (otra VPN activa).${e}"
             return 0
         fi
         sleep 1
     done
-    echo -e "${r}[!] tun0 sigue arriba. Revisa procesos: pgrep -a openvpn${e}"
+    echo -e "${r}[!] El proceso $pid sigue vivo. Prueba: sudo kill -9 $pid${e}"
     return 1
 }
 
 cmd_vpnstatus() {
+    local pid; pid=$(htb_vpn_pid) || pid=""
     if ip a show tun0 &>/dev/null; then
         echo -e "${g}[+] VPN conectada: $(ip -4 a show tun0 | awk '/inet/{print $2}')${e}"
+        [ -n "$pid" ] && echo -e "${b}    (openvpn de htb: pid $pid)${e}"
     else
         echo -e "${r}[!] Sin tun0 (VPN desconectada). Usa: htb connect${e}"
     fi
 }
 
+cmd_version() { echo "htb $HTB_VERSION"; }
+
 usage() {
     cat <<EOF
-$(echo -e "${g}htb${e}") - cliente HackTheBox (API v4)
+$(echo -e "${g}htb${e}") $HTB_VERSION - cliente HackTheBox (API v4)
 
   htb whoami                 Quien eres (token check)
   htb list [N]               Ultimas N maquinas (default 15)
@@ -297,8 +360,9 @@ $(echo -e "${g}htb${e}") - cliente HackTheBox (API v4)
   htb own <nombre|id> <flag> [diff]  Sube flag a una maquina concreta
   htb vpn [archivo.ovpn]     Descarga tu config VPN desde la API
   htb connect [archivo]      Conecta la VPN (dedivip) y comprueba tun0
-  htb disconnect             Desconecta la VPN (mata openvpn, espera tun0 abajo)
+  htb disconnect [archivo]   Desconecta SOLO la VPN lanzada por htb (por PID)
   htb vpnstatus              Comprueba si tun0 esta arriba
+  htb version                Version de htb
 
 Flag rapida (first blood): primero 'htb spawn X', luego pegas user y root:
   htb own <hash_user>
@@ -324,6 +388,7 @@ case "$cmd" in
     connect)       cmd_connect "$@" ;;
     disconnect|dc) cmd_disconnect "$@" ;;
     vpnstatus)     cmd_vpnstatus "$@" ;;
+    version|--version|-V) cmd_version ;;
     ""|-h|--help|help) usage ;;
     *) echo -e "${r}[!] Comando desconocido: $cmd${e}"; usage; exit 1 ;;
 esac

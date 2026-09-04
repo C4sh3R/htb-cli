@@ -95,8 +95,9 @@ htb <comando> [argumentos]
 | `htb own <nombre\|id> <flag> [dif]` | Sube una flag a una máquina concreta |
 | `htb vpn [archivo]` | Descarga tu config VPN desde la API |
 | `htb connect [archivo]` | Conecta la VPN y verifica `tun0` |
-| `htb disconnect` | Desconecta la VPN (mata `openvpn`, espera a que `tun0` baje) |
+| `htb disconnect [archivo]` | Desconecta **solo** la VPN lanzada por `htb` (por PID) |
 | `htb vpnstatus` | Comprueba si `tun0` está activo |
+| `htb version` | Versión de `htb` |
 
 ---
 
@@ -280,7 +281,7 @@ htb vpn ~/vpn/eu-vip.ovpn
 
 ### `htb connect [archivo.ovpn]`
 
-Conecta la VPN con `openvpn --daemon` y espera hasta 15 segundos a que `tun0` suba.
+Conecta la VPN con `openvpn --daemon` y espera hasta 15 segundos a que `tun0` suba. Guarda el PID del proceso en `/run/htb-openvpn.pid` (`HTB_VPN_PID_FILE`) para que `htb disconnect` sepa exactamente cuál es *su* proceso.
 
 > La ruta por defecto depende de dónde tengas tu `.ovpn`. Si no pasas archivo, usa `VPN_FILE`/`HTB_VPN_FILE` — asegúrate de haberla puesto a tu ruta (ver [VPN por defecto](#vpn-por-defecto)). También puedes pasar el archivo directamente:
 
@@ -299,14 +300,23 @@ chmod 600 ~/.config/htb/sudo.pass
 
 ---
 
-### `htb disconnect`
+### `htb disconnect [archivo.ovpn]`
 
-Corta la VPN: mata el proceso `openvpn` y espera hasta 15 segundos a que `tun0` desaparezca. Usa `~/.config/htb/sudo.pass` si existe para no pedir contraseña.
+Corta **únicamente** la VPN que levantó `htb`: lee el PID de `/run/htb-openvpn.pid`, comprueba que ese proceso siga vivo y sea realmente un `openvpn`, y lo mata. Nunca hace `pkill openvpn`, así que otras sesiones VPN del sistema (trabajo, otro lab, otro `.ovpn`) siguen intactas. Usa `~/.config/htb/sudo.pass` si existe para no pedir contraseña.
 
 ```
 $ htb disconnect
-[*] Desconectando VPN (sudo)...
-[+] VPN desconectada (tun0 abajo).
+[*] Desconectando VPN de htb (pid 4821, sudo)...
+[+] VPN desconectada (pid 4821 terminado).
+```
+
+Si no hay pidfile válido (por ejemplo, una VPN levantada con una versión anterior), busca procesos `openvpn` cuya línea de comandos use ese `.ovpn`. Si encuentra exactamente uno, lo mata; si hay varios, o si los `openvpn` en marcha no son suyos, no toca nada y te los lista:
+
+```
+$ htb disconnect
+[*] Hay openvpn corriendo, pero ninguno lo lanzo htb.
+    No toco VPNs ajenas. Procesos actuales:
+3390 openvpn --config /home/user/work.ovpn --daemon
 ```
 
 ---
@@ -318,6 +328,7 @@ Comprueba rápidamente si `tun0` está activo.
 ```
 $ htb vpnstatus
 [+] VPN conectada: 10.10.14.5/23
+    (openvpn de htb: pid 4821)
 ```
 
 ---
@@ -402,6 +413,7 @@ chmod 600 ~/.config/htb/token
 | `HTB_TOKEN` | — | Token de la API (override por env) |
 | `HTB_TOKEN_FILE` | `~/.config/htb/token` | Ruta al fichero de token |
 | `HTB_VPN_FILE` | *(ruta hardcodeada)* | Config VPN por defecto para `htb connect` |
+| `HTB_VPN_PID_FILE` | `/run/htb-openvpn.pid` | PID del `openvpn` lanzado por `htb` (lo usa `htb disconnect`) |
 
 ---
 
