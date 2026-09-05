@@ -16,7 +16,9 @@ htb season               →  lista las máquinas de la season con estado de blo
 - Resuelve nombres de máquinas a IDs automáticamente (busca en season → lista general → búsqueda libre)
 - Después del spawn, espera la IP y la copia al portapapeles (`xclip`)
 - Detecta la máquina activa automáticamente en `own`, `stop`, `reset` e `ip`
-- Salida con colores y prefijos claros `[+]` / `[!]` / `[*]`
+- **Interfaz con iconos y colores autodetectados**: usa glifos Nerd Font si los tienes, emoji si no, y ASCII puro cuando la salida va a un fichero o `TERM` no es UTF-8
+- Iconos por sistema operativo (Windows/Linux/BSD/macOS), dificultad coloreada y marcas de *own* / *blood*
+- `htb font` instala una Nerd Font sin tocar el gestor de paquetes (igual en Arch, Debian, Fedora o macOS)
 - El token se guarda una vez en `~/.config/htb/token` o se pasa por variable de entorno
 - Gestión de VPN integrada: descarga la config, conecta, comprueba `tun0`
 
@@ -30,6 +32,8 @@ htb season               →  lista las máquinas de la season con estado de blo
 | `curl` | Llamadas a la API |
 | `jq` | Parseo de JSON |
 | `xclip` | Copiar IP al portapapeles tras spawn (opcional) |
+| `fontconfig` | Detectar/instalar Nerd Fonts (opcional) |
+| `unzip`, `bsdtar` o `python3` | Extraer la fuente en `htb font` (cualquiera de los tres) |
 | `openvpn` | VPN con `htb connect` (opcional) |
 
 ---
@@ -97,6 +101,8 @@ htb <comando> [argumentos]
 | `htb connect [archivo]` | Conecta la VPN y verifica `tun0` |
 | `htb disconnect [archivo]` | Desconecta **solo** la VPN lanzada por `htb` (por PID) |
 | `htb vpnstatus` | Comprueba si `tun0` está activo |
+| `htb icons` | Muestra el juego de iconos detectado |
+| `htb font [Fuente]` | Instala una Nerd Font (por defecto `Hack`) |
 | `htb version` | Versión de `htb` |
 
 ---
@@ -406,6 +412,44 @@ chmod 600 ~/.config/htb/token
 
 ---
 
+## Apariencia
+
+`htb` decide solo cómo pintarse, en este orden:
+
+| Modo | Cuándo se elige | Ejemplo |
+|------|-----------------|---------|
+| `nerd` | Hay una Nerd Font instalada (`fc-list`) | ` `  ` ` |
+| `emoji` | Terminal UTF-8 sin Nerd Font | `🪟` `🐧` |
+| `ascii` | Sin UTF-8, o la salida va a un fichero/pipe | `WIN` `LNX` |
+
+Los anchos de columna se calculan sobre el ancho **visible** real (ignorando los
+códigos ANSI y contando los emoji como dos columnas), así que la tabla queda
+alineada en los tres modos.
+
+```bash
+htb icons                 # ver qué modo se ha detectado
+HTB_ICONS=emoji htb list  # forzar un modo concreto
+NO_COLOR=1 htb list       # sin color
+```
+
+### `htb font [Fuente]`
+
+Instala una Nerd Font en el directorio de fuentes del usuario y refresca la caché.
+No usa `pacman`, `apt` ni `dnf`, así que funciona igual en cualquier distro:
+
+```bash
+htb font              # instala Hack Nerd Font
+htb font JetBrainsMono
+```
+
+Descarga desde las [releases de ryanoasis/nerd-fonts](https://github.com/ryanoasis/nerd-fonts/releases)
+a `~/.local/share/fonts` (o `~/Library/Fonts` en macOS), extrae con `unzip`,
+`bsdtar` o `python3` —lo que haya— y ejecuta `fc-cache`. Después hay que
+seleccionar la fuente en los ajustes de la terminal; el comando imprime la línea
+de configuración para kitty, alacritty y wezterm.
+
+---
+
 ## Variables de configuración
 
 | Variable | Por defecto | Descripción |
@@ -414,6 +458,9 @@ chmod 600 ~/.config/htb/token
 | `HTB_TOKEN_FILE` | `~/.config/htb/token` | Ruta al fichero de token |
 | `HTB_VPN_FILE` | *(ruta hardcodeada)* | Config VPN por defecto para `htb connect` |
 | `HTB_VPN_PID_FILE` | `/run/htb-openvpn.pid` | PID del `openvpn` lanzado por `htb` (lo usa `htb disconnect`) |
+| `HTB_ICONS` | *(autodetección)* | Fuerza el juego de iconos: `nerd`, `emoji` o `ascii` |
+| `NO_COLOR` | — | Si está definida, desactiva el color |
+| `HTB_NF_VERSION` | `v3.4.0` | Release de nerd-fonts que descarga `htb font` |
 
 ---
 

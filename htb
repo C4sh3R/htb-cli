@@ -5,164 +5,353 @@
 #
 # Token: se lee de $HTB_TOKEN o, si no, de ~/.config/htb/token
 # Requisitos: curl, jq, python3 (solo para algun parseo puntual)
+#
+# Apariencia:
+#   HTB_ICONS=nerd|emoji|ascii   fuerza el juego de iconos (por defecto: autodeteccion)
+#   NO_COLOR=1                   desactiva color
 
 set -o pipefail
 
-# ---------------- Colores ----------------
-g="\e[0;32m\033[1m"; r="\e[0;31m\033[1m"; b="\e[0;34m\033[1m"
-y="\e[0;33m\033[1m"; c="\e[0;36m\033[1m"; e="\033[0m\e[0m"
+HTB_VERSION="1.3.0"
 
-# ---------------- Config -----------------
-HTB_VERSION="1.1.0"
+# ================= Apariencia =================
+
+# Autodeteccion del juego de iconos para que se vea bien en cualquier terminal:
+#   nerd  -> hay una Nerd Font instalada
+#   emoji -> terminal UTF-8 sin Nerd Font
+#   ascii -> sin UTF-8, o salida redirigida a fichero/pipe
+if [ -t 1 ]; then IS_TTY=1; else IS_TTY=0; fi
+
+detect_icons() {
+    if [ -n "$HTB_ICONS" ]; then printf '%s' "$HTB_ICONS"; return; fi
+    [ "$IS_TTY" = 1 ] || { printf 'ascii'; return; }
+    case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+        *UTF-8*|*utf-8*|*UTF8*|*utf8*) ;;
+        *) printf 'ascii'; return ;;
+    esac
+    local nf=0
+    if command -v fc-list >/dev/null 2>&1; then
+        nf=$(fc-list 2>/dev/null | grep -ci 'nerd font') || nf=0
+    fi
+    if [ "${nf:-0}" -gt 0 ] 2>/dev/null; then printf 'nerd'; return; fi
+    
+    printf 'emoji'
+}
+ICONSET="$(detect_icons)"
+
+if [ "$IS_TTY" = 1 ] && [ -z "$NO_COLOR" ]; then
+    RST=$'\e[0m';        BOLD=$'\e[1m';        DIM=$'\e[2m'
+    RED=$'\e[38;5;203m'; GRN=$'\e[38;5;114m';  YEL=$'\e[38;5;221m'
+    BLU=$'\e[38;5;75m';  MAG=$'\e[38;5;176m';  CYN=$'\e[38;5;80m'
+    ORG=$'\e[38;5;215m'; GRY=$'\e[38;5;244m';  WHT=$'\e[38;5;255m'
+else
+    RST= BOLD= DIM= RED= GRN= YEL= BLU= MAG= CYN= ORG= GRY= WHT=
+fi
+# alias de compatibilidad con el codigo antiguo
+g="$GRN$BOLD"; r="$RED$BOLD"; b="$BLU$BOLD"; y="$YEL$BOLD"; c="$CYN$BOLD"; e="$RST"
+
+case "$ICONSET" in
+  emoji)
+    I_WIN='🪟' I_LNX='🐧' I_BSD='😈' I_MAC='🍎' I_OTH='💻'
+    I_OK='✅' I_NO='❌' I_BLOOD='🩸' I_DOT='●' I_FLAG='🚩' I_NONE='·'
+    I_OWN='🟩' I_NOOWN='⬜'
+    I_USER='👤' I_ROOT='👑' I_NET='🌐' I_KEY='🔑' I_CLOCK='🕒' I_BOX='📦'
+    I_UP='🚀' I_WARN='🚨' I_INFO='📌' I_LOCK='🔒' I_STAR='⭐' I_TGT='🎯' ;;
+  ascii)
+    I_WIN='WIN' I_LNX='LNX' I_BSD='BSD' I_MAC='MAC' I_OTH=' ? '
+    I_OK='[+]' I_NO='[-]' I_BLOOD='<*>' I_DOT='o' I_FLAG='>>' I_NONE=' . '
+    I_OWN='[x]' I_NOOWN='[ ]'
+    I_USER='U' I_ROOT='R' I_NET='@' I_KEY='K' I_CLOCK='T' I_BOX='#'
+    I_UP='>' I_WARN='!' I_INFO='i' I_LOCK='L' I_STAR='*' I_TGT='x' ;;
+  *)
+    I_WIN=$'' I_LNX=$'' I_BSD=$'' I_MAC=$'' I_OTH=$''
+    I_OK=$''  I_NO=$''  I_BLOOD=$'' I_DOT=$'●'
+    I_OWN=$'' I_NOOWN=$''
+    I_FLAG=$'' I_NONE=$'·'
+    I_USER=$'' I_ROOT=$'' I_NET=$'' I_KEY=$''
+    I_CLOCK=$'' I_BOX=$'' I_UP=$'' I_WARN=$''
+    I_INFO=$'' I_LOCK=$'' I_STAR=$'' I_TGT=$'' ;;
+esac
+
+# ---- Ancho visible real (salta ANSI, cuenta emoji como 2 columnas) ----
+_vlen() {
+    local s="$1"
+    local n=${#s} i=0 ch cp w=0 esc=0
+    while (( i < n )); do
+        ch="${s:i:1}"
+        if (( esc )); then
+            [[ $ch == [a-zA-Z] ]] && esc=0
+            (( i++ )); continue
+        fi
+        if [[ $ch == $'\e' ]]; then esc=1; (( i++ )); continue; fi
+        printf -v cp '%d' "'$ch" 2>/dev/null || cp=63
+        if   (( cp >= 0x0300 && cp <= 0x036F )); then :
+        elif (( (cp >= 0x1100  && cp <= 0x115F) || \
+                (cp >= 0x2700  && cp <= 0x27BF) || \
+                (cp >= 0x2B00  && cp <= 0x2BFF) || \
+                (cp >= 0x2E80  && cp <= 0xA4CF) || \
+                (cp >= 0xAC00  && cp <= 0xD7A3) || \
+                (cp >= 0xF900  && cp <= 0xFAFF) || \
+                (cp >= 0xFE30  && cp <= 0xFE6F) || \
+                (cp >= 0xFF00  && cp <= 0xFF60) || \
+                (cp >= 0x1F000 && cp <= 0x1FAFF) )); then w=$(( w + 2 ))
+        else w=$(( w + 1 )); fi
+        (( i++ ))
+    done
+    printf '%s' "$w"
+}
+# celda: imprime <texto> + relleno hasta <ancho> (el relleno lo genera printf,
+# asi no lo puede comer una sustitucion de comandos)
+cell() { local n; n=$(( $2 - $(_vlen "$1") )); (( n < 0 )) && n=0; printf '%s%*s' "$1" "$n" ''; }
+pad()  { local t="$1" w="$2" al="${3:-left}" l n sp
+         l=$(_vlen "$t"); n=$(( w - l )); (( n < 0 )) && n=0
+         printf -v sp '%*s' "$n" ''
+         if [ "$al" = right ]; then printf '%s%s' "$sp" "$t"; else printf '%s%s' "$t" "$sp"; fi; }
+line() { local s; printf -v s '%*s' "$1" ''; printf '%s' "${s// /─}"; }
+
+title() { local t="$1" w="${2:-74}"
+          printf '%s╭%s╮%s\n' "$CYN" "$(line $((w-2)))" "$RST"
+          printf '%s│%s %s%s%s %s│%s\n' "$CYN" "$RST" "$BOLD$WHT" "$(pad "$t" $((w-4)))" "$RST" "$CYN" "$RST"
+          printf '%s╰%s╯%s\n' "$CYN" "$(line $((w-2)))" "$RST"; }
+
+ok()   { printf '%s%s%s %s\n' "$GRN" "$I_OK"   "$RST" "$*"; }
+bad()  { printf '%s%s%s %s\n' "$RED" "$I_NO"   "$RST" "$*" >&2; }
+warn() { printf '%s%s%s %s\n' "$YEL" "$I_WARN" "$RST" "$*"; }
+info() { printf '%s%s%s %s\n' "$BLU" "$I_INFO" "$RST" "$*"; }
+step() { printf '%s%s%s %s\n' "$MAG" "$I_UP"   "$RST" "$*"; }
+
+os_icon() { case "${1,,}" in
+      windows*)          printf '%s%s%s' "$BLU" "$I_WIN" "$RST" ;;
+      linux*)            printf '%s%s%s' "$YEL" "$I_LNX" "$RST" ;;
+      freebsd*|openbsd*) printf '%s%s%s' "$RED" "$I_BSD" "$RST" ;;
+      macos*|osx*)       printf '%s%s%s' "$WHT" "$I_MAC" "$RST" ;;
+      *)                 printf '%s%s%s' "$GRY" "$I_OTH" "$RST" ;;
+    esac; }
+diff_fmt() { local col; case "${1,,}" in
+      easy)   col="$GRN" ;;  medium) col="$YEL" ;;
+      hard)   col="$ORG" ;;  insane) col="$RED" ;;  *) col="$GRY" ;;
+    esac; printf '%s%s %s%s' "$col" "$I_DOT" "$1" "$RST"; }
+own_fmt()   { case "$1" in true|True|1) printf '%s%s%s' "$GRN" "$I_OWN" "$RST" ;;
+                          *) printf '%s%s%s' "$GRY" "$I_NOOWN" "$RST" ;; esac; }
+blood_fmt() { case "$1" in true|True|1) printf '%s%s%s' "$RED" "$I_BLOOD" "$RST" ;;
+                          *) printf '%s%s%s' "$GRY" "$I_NONE" "$RST" ;; esac; }
+rel_fmt()   { case "$1" in true|True|1) printf '%s%s live%s' "$GRN" "$I_DOT" "$RST" ;;
+                          *) printf '%s%s soon%s' "$GRY" "$I_LOCK" "$RST" ;; esac; }
+field()     { printf '   %s%s%s  %s\n' "$GRY" "$(pad "$1" 12)" "$RST" "$2"; }
+
+# ================= Config =================
 
 API="https://labs.hackthebox.com/api/v4"
 API_V5="https://labs.hackthebox.com/api/v5"   # /machine/own migro aqui (v4 retirado)
 TOKEN_FILE="${HTB_TOKEN_FILE:-$HOME/.config/htb/token}"
 UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 VPN_FILE="${HTB_VPN_FILE:-$HOME/Desktop/c4sh3r/HTB/vpn/c4sh/VIP/htb.ovpn}"
-# PID del openvpn lanzado por htb (para no tocar otras VPNs del sistema)
 PID_FILE="${HTB_VPN_PID_FILE:-/run/htb-openvpn.pid}"
 
 if [ -z "$HTB_TOKEN" ] && [ -f "$TOKEN_FILE" ]; then
     HTB_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
 fi
-# version y ayuda no necesitan token; el resto si
 case "${1:-}" in
-    version|--version|-V|-h|--help|help|"") ;;
+    version|--version|-V|-h|--help|help|icons|font|setup-font|"") ;;
     *)
         if [ -z "$HTB_TOKEN" ]; then
-            echo -e "${r}[!] No hay token. Ponlo en \$HTB_TOKEN o en $TOKEN_FILE${e}" >&2
+            bad "No hay token. Ponlo en \$HTB_TOKEN o en $TOKEN_FILE"
             exit 1
         fi ;;
 esac
 
-# ---------------- Helpers HTTP -----------------
-# api METHOD PATH [json_body]
+# ================= Helpers HTTP =================
 api() {
     local method="$1" path="$2" body="$3"
     if [ -n "$body" ]; then
         curl -s --max-time 40 -X "$method" "$API$path" \
-            -H "Authorization: Bearer $HTB_TOKEN" \
-            -H "User-Agent: $UA" \
-            -H "Accept: application/json" \
-            -H "Content-Type: application/json" \
-            -d "$body"
+            -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" \
+            -H "Accept: application/json" -H "Content-Type: application/json" -d "$body"
     else
         curl -s --max-time 40 -X "$method" "$API$path" \
-            -H "Authorization: Bearer $HTB_TOKEN" \
-            -H "User-Agent: $UA" \
+            -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" \
             -H "Accept: application/json"
     fi
 }
-
-# Igual que api() pero contra la API v5 (de momento solo /machine/own vive ahi)
 api5() {
     local method="$1" path="$2" body="$3"
     if [ -n "$body" ]; then
         curl -s --max-time 40 -X "$method" "$API_V5$path" \
-            -H "Authorization: Bearer $HTB_TOKEN" \
-            -H "User-Agent: $UA" \
-            -H "Accept: application/json" \
-            -H "Content-Type: application/json" \
-            -d "$body"
+            -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" \
+            -H "Accept: application/json" -H "Content-Type: application/json" -d "$body"
     else
         curl -s --max-time 40 -X "$method" "$API_V5$path" \
-            -H "Authorization: Bearer $HTB_TOKEN" \
-            -H "User-Agent: $UA" \
+            -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" \
             -H "Accept: application/json"
     fi
 }
 
-die() { echo -e "${r}[!] $*${e}" >&2; exit 1; }
+die() { bad "$*"; exit 1; }
 
-# Resuelve un identificador (id numerico o nombre) a un ID de maquina.
-# Busca primero en season machines (releases) y luego en el listado general.
 resolve_id() {
     local q="$1"
     if [[ "$q" =~ ^[0-9]+$ ]]; then echo "$q"; return 0; fi
-    # season machines (la release de la noche suele estar aqui)
     local id
     id=$(api GET "/season/machines" | jq -r --arg n "$q" \
         '.data[]? | select(.name != null) | select(.name|ascii_downcase == ($n|ascii_downcase)) | .id' | head -1)
     if [ -n "$id" ] && [ "$id" != "null" ]; then echo "$id"; return 0; fi
-    # busqueda global por nombre exacto
     id=$(api GET "/machine/paginated?per_page=100" | jq -r --arg n "$q" \
         '.data[]? | select(.name != null) | select(.name|ascii_downcase == ($n|ascii_downcase)) | .id' | head -1)
     if [ -n "$id" ] && [ "$id" != "null" ]; then echo "$id"; return 0; fi
-    # endpoint de busqueda libre de HTB
     id=$(api GET "/search/fetch?query=$q&tags=%5B%22machines%22%5D" 2>/dev/null \
         | jq -r --arg n "$q" '.machines[]? | select(.value|ascii_downcase == ($n|ascii_downcase)) | .id' 2>/dev/null | head -1)
     [ -n "$id" ] && [ "$id" != "null" ] && { echo "$id"; return 0; }
     return 1
 }
 
-# ID de la maquina actualmente spawneada (la que tienes activa)
-active_id() {
-    api GET "/machine/active" | jq -r '.info.id // empty'
-}
+active_id() { api GET "/machine/active" | jq -r '.info.id // empty'; }
 
-# ---------------- Comandos -----------------
+# ================= Comandos =================
 
 cmd_whoami() {
-    api GET "/user/info" | jq -r '.info | "Usuario: \(.name)  (id \(.id))\nVIP: \(.canAccessVIP)  Server: \(.server_id)"'
+    local out; out=$(api GET "/user/info")
+    local name id vip srv
+    name=$(echo "$out" | jq -r '.info.name // empty')
+    [ -z "$name" ] && die "Token invalido o API no responde"
+    id=$(echo "$out"  | jq -r '.info.id')
+    vip=$(echo "$out" | jq -r '.info.canAccessVIP')
+    srv=$(echo "$out" | jq -r '.info.server_id // "n/a"')
+    title "$I_USER  Sesion HackTheBox"
+    field "Usuario" "$BOLD$WHT$name$RST $GRY(id $id)$RST"
+    if [ "$vip" = "true" ]; then field "VIP" "$(printf '%s%s si%s' "$GRN" "$I_STAR" "$RST")"
+    else field "VIP" "$(printf '%s%s no%s' "$GRY" "$I_NO" "$RST")"; fi
+    field "Server" "$srv"
+    echo
+}
+
+# Cabecera de tabla de maquinas
+_mach_header() {
+    printf '  %s%s%s%s%s%s%s%s\n' \
+        "$BOLD$GRY" "$(pad "ID" 7)" "$(pad "OS" 5)" "$(pad "MAQUINA" 22)" \
+        "$(pad "DIFICULTAD" 14)" "$(pad "RELEASE" 13)" "$(pad "USER" 6)$(pad "ROOT" 6)" "$RST"
+    printf '  %s%s%s\n' "$GRY" "$(line 73)" "$RST"
+}
+_mach_row() { # id os name diff release userown rootown
+    printf '  %s%s%s%s%s%s%s\n' \
+        "$(pad "$WHT$1$RST" 7)" "$(pad "$(os_icon "$2")" 5)" \
+        "$(pad "$BOLD$3$RST" 22)" "$(pad "$(diff_fmt "$4")" 14)" \
+        "$(pad "$GRY$5$RST" 13)" "$(pad "$(own_fmt "$6")" 6)" "$(pad "$(own_fmt "$7")" 6)"
 }
 
 cmd_list() {
-    local n="${1:-15}"
-    echo -e "${c}== Ultimas $n maquinas (mas recientes primero) ==${e}"
-    api GET "/machine/paginated?per_page=$n" \
+    local n="${1:-15}" rows
+    title "$I_BOX  Ultimas $n maquinas"
+    rows=$(api GET "/machine/paginated?per_page=$n" \
         | jq -r '.data | sort_by(.release) | reverse | .[]
-            | "\(.id)\t\(.name)\t\(.os)\t\(.difficultyText)\t\(.release[0:10])\tU:\(.authUserInUserOwns) R:\(.authUserInRootOwns)"' \
-        | column -t -s$'\t'
+            | [.id,.os,.name,.difficultyText,(.release[0:10]),
+               (.authUserInUserOwns|tostring),(.authUserInRootOwns|tostring)] | @tsv')
+    [ -z "$rows" ] && { warn "Sin datos (revisa el token)"; return 1; }
+    _mach_header
+    local id os name diff rel u rt
+    while IFS=$'\t' read -r id os name diff rel u rt; do
+        _mach_row "$id" "$os" "$name" "$diff" "$rel" "$u" "$rt"
+    done <<< "$rows"
+    echo
 }
 
 cmd_season() {
-    echo -e "${c}== Maquinas de la season activa ==${e}"
-    api GET "/season/machines" \
-        | jq -r '.data[]? | "\(.id)\t\(.name)\t\(.os)\t\(.difficulty_text)\trel:\(.release_time[0:10])\treleased:\(.is_released)\tUblood:\(.is_user_blood) Rblood:\(.is_root_blood)"' \
-        | column -t -s$'\t'
+    local raw rows
+    title "$I_TGT  Maquinas de la season activa"
+    raw=$(api GET "/season/machines")
+    rows=$(echo "$raw" | jq -r '.data[]? | [.id,.os,.name,.difficulty_text,(.release_time[0:10]),
+                 (.is_released|tostring),(.is_user_blood|tostring),(.is_root_blood|tostring)] | @tsv')
+    if [ -z "$rows" ]; then
+        local why; why=$(echo "$raw" | jq -r '.message // empty')
+        warn "No hay season activa${why:+ $GRY(API: $why)$RST}"
+        return 1
+    fi
+    printf '  %s%s%s%s%s%s%s%s\n' "$BOLD$GRY" "$(pad "ID" 7)" "$(pad "OS" 5)" \
+        "$(pad "MAQUINA" 22)" "$(pad "DIFICULTAD" 14)" "$(pad "RELEASE" 13)" \
+        "$(pad "ESTADO" 9)$(pad "BLOOD" 8)" "$RST"
+    printf '  %s%s%s\n' "$GRY" "$(line 78)" "$RST"
+    local id os name diff rel isrel ub rb
+    while IFS=$'\t' read -r id os name diff rel isrel ub rb; do
+        printf '  %s%s%s%s%s%s%s\n' \
+            "$(pad "$WHT$id$RST" 7)" "$(pad "$(os_icon "$os")" 5)" \
+            "$(pad "$BOLD$name$RST" 22)" "$(pad "$(diff_fmt "$diff")" 14)" \
+            "$(pad "$GRY$rel$RST" 13)" "$(pad "$(rel_fmt "$isrel")" 9)" \
+            "$(pad "$(blood_fmt "$ub")$(blood_fmt "$rb")" 8)"
+    done <<< "$rows"
+    printf '  %s%s%s = user blood   %s%s%s = root blood (2do)%s\n\n' \
+        "$RED" "$I_BLOOD" "$GRY" "$RED" "$I_BLOOD" "$GRY" "$RST"
+    echo
 }
 
-# Maquina mas reciente (para detectar la release de la noche)
 cmd_latest() {
-    api GET "/machine/paginated?per_page=20" \
+    local out; out=$(api GET "/machine/paginated?per_page=20" \
         | jq -r '.data | sort_by(.release) | reverse | .[0]
-            | "Mas reciente:\n  ID:         \(.id)\n  Nombre:     \(.name)\n  OS:         \(.os)\n  Dificultad: \(.difficultyText)\n  Release:    \(.release)\n  Activa:     \(.active)"'
+            | [.id,.os,.name,.difficultyText,.release,(.active|tostring)] | @tsv')
+    [ -z "$out" ] && die "No se pudo consultar la API"
+    local id os name diff rel act
+    IFS=$'\t' read -r id os name diff rel act <<< "$out"
+    title "$I_UP  Release mas reciente"
+    field "Maquina"    "$(os_icon "$os")  $BOLD$WHT$name$RST $GRY(id $id)$RST"
+    field "Sistema"    "$os"
+    field "Dificultad" "$(diff_fmt "$diff")"
+    field "Release"    "$GRY${rel:0:19}$RST"
+    if [ "$act" = "true" ]; then field "Estado" "$(printf '%s%s activa%s' "$GRN" "$I_DOT" "$RST")"
+    else field "Estado" "$(printf '%s%s inactiva%s' "$GRY" "$I_NO" "$RST")"; fi
+    echo
 }
 
 cmd_info() {
     local id; id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
-    api GET "/machine/profile/$id" | jq '.info | {id,name,os,difficultyText,ip,points,release,active,authUserInUserOwns,authUserInRootOwns}'
+    local out; out=$(api GET "/machine/profile/$id" \
+        | jq -r '.info | [.id,.os,.name,.difficultyText,(.ip//"-"),(.points//0),.release,
+                 (.active|tostring),(.authUserInUserOwns|tostring),(.authUserInRootOwns|tostring)] | @tsv')
+    [ -z "$out" ] && die "No se pudo obtener el perfil de la maquina"
+    local mid os name diff ip pts rel act uo ro
+    IFS=$'\t' read -r mid os name diff ip pts rel act uo ro <<< "$out"
+    title "$(os_icon "$os")  $name"
+    field "ID"         "$WHT$mid$RST"
+    field "Sistema"    "$(os_icon "$os")  $os"
+    field "Dificultad" "$(diff_fmt "$diff")"
+    field "Puntos"     "$pts"
+    field "IP"         "$( [ "$ip" != "-" ] && [ "$ip" != "null" ] && printf '%s%s%s' "$GRN$BOLD" "$ip" "$RST" || printf '%s(no spawneada)%s' "$GRY" "$RST")"
+    field "Release"    "$GRY${rel:0:10}$RST"
+    field "Activa"     "$( [ "$act" = true ] && printf '%s%s si%s' "$GRN" "$I_DOT" "$RST" || printf '%s%s no%s' "$GRY" "$I_NO" "$RST")"
+    field "User own"   "$(own_fmt "$uo")"
+    field "Root own"   "$(own_fmt "$ro")"
+    echo
 }
 
 cmd_active() {
     local out; out=$(api GET "/machine/active")
     if [ "$(echo "$out" | jq -r '.info')" = "null" ]; then
-        echo -e "${y}[*] No tienes ninguna maquina spawneada.${e}"
-    else
-        echo "$out" | jq -r '.info | "Activa: \(.name) (id \(.id))\nIP: \(.ip)\nExpira: \(.expires_at // "n/a")"'
+        warn "No tienes ninguna maquina spawneada."
+        printf '   %sArranca una con:%s htb spawn <nombre>\n' "$GRY" "$RST"
+        return 0
     fi
+    local name id ip exp
+    name=$(echo "$out" | jq -r '.info.name'); id=$(echo "$out" | jq -r '.info.id')
+    ip=$(echo "$out"   | jq -r '.info.ip // "n/a"'); exp=$(echo "$out" | jq -r '.info.expires_at // "n/a"')
+    title "$I_TGT  Maquina activa"
+    field "Maquina" "$BOLD$WHT$name$RST $GRY(id $id)$RST"
+    field "IP"      "$GRN$BOLD$ip$RST"
+    field "Expira"  "$GRY$exp$RST"
+    echo
 }
 
-# spawn <name|id>
 cmd_spawn() {
     [ -z "$1" ] && die "Uso: htb spawn <nombre|id>"
     local id; id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
-    echo -e "${y}[*] Spawneando maquina id $id ...${e}"
+    step "Spawneando maquina id $id ..."
     local out; out=$(api POST "/vm/spawn" "{\"machine_id\": $id}")
-    local msg; msg=$(echo "$out" | jq -r '.message // .error // .')
-    echo -e "${g}[+] $msg${e}"
-    echo -e "${y}[*] Esperando IP...${e}"
+    ok "$(echo "$out" | jq -r '.message // .error // .')"
     cmd_ip "$id"
 }
 
-# stop / terminate
 cmd_stop() {
     local id; id="${1:-$(active_id)}"
     [ -z "$id" ] && die "No hay maquina activa que parar"
     [[ "$id" =~ ^[0-9]+$ ]] || id=$(resolve_id "$id") || die "No encuentro '$1'"
     local out; out=$(api POST "/vm/terminate" "{\"machine_id\": $id}")
-    echo -e "${g}[+] $(echo "$out" | jq -r '.message // .')${e}"
+    ok "$(echo "$out" | jq -r '.message // .')"
 }
 
 cmd_reset() {
@@ -170,207 +359,286 @@ cmd_reset() {
     [ -z "$id" ] && die "No hay maquina activa que resetear"
     [[ "$id" =~ ^[0-9]+$ ]] || id=$(resolve_id "$id") || die "No encuentro '$1'"
     local out; out=$(api POST "/vm/reset" "{\"machine_id\": $id}")
-    echo -e "${g}[+] $(echo "$out" | jq -r '.message // .')${e}"
+    ok "$(echo "$out" | jq -r '.message // .')"
 }
 
-# ip [name|id] -> espera a que la maquina activa tenga IP y la imprime
 cmd_ip() {
     local id="${1:-$(active_id)}"
     [ -n "$id" ] && [[ ! "$id" =~ ^[0-9]+$ ]] && id=$(resolve_id "$id")
-    local i ip
+    local i ip spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' fr
+    [ "$ICONSET" = ascii ] && spin='|/-\'
     for i in $(seq 1 40); do
         ip=$(api GET "/machine/active" | jq -r '.info.ip // empty')
         if [ -n "$ip" ] && [ "$ip" != "null" ]; then
-            echo -e "${g}[+] IP: $ip${e}"
-            echo "$ip" | tr -d '\n' | xclip -selection clipboard 2>/dev/null && echo -e "${b}    (copiada al portapapeles)${e}"
+            [ -t 1 ] && printf '\r\e[K'
+            ok "IP: $GRN$BOLD$ip$RST"
+            if echo "$ip" | tr -d '\n' | xclip -selection clipboard 2>/dev/null; then
+                printf '   %scopiada al portapapeles%s\n' "$GRY" "$RST"
+            fi
             return 0
+        fi
+        if [ -t 1 ]; then
+            fr="${spin:$(( (i-1) % ${#spin} )):1}"
+            printf '\r%s%s%s esperando IP... %ss ' "$CYN" "$fr" "$RST" "$((i*2))"
         fi
         sleep 2
     done
-    echo -e "${r}[!] La maquina aun no tiene IP (sigue arrancando). Reintenta: htb ip${e}"
+    [ -t 1 ] && printf '\r\e[K'
+    bad "La maquina aun no tiene IP (sigue arrancando). Reintenta: htb ip"
     return 1
 }
 
-# own <flag> [user|root] [diff]  -> sube flag a la maquina ACTIVA (auto)
-# tambien: own <name|id> <flag> [diff]
 cmd_own() {
     local id flag diff="50"
     if [ -n "$2" ] && [[ ! "$1" =~ ^[a-f0-9]{30,}$ ]]; then
-        # forma: own <name|id> <flag> [diff]
         id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
         flag="$2"; [ -n "$3" ] && diff="$3"
     else
-        # forma: own <flag> [diff] -> usa maquina activa
         flag="$1"; [ -n "$2" ] && diff="$2"
         id=$(active_id)
         [ -z "$id" ] && die "No hay maquina activa. Usa: htb own <nombre> <flag>"
     fi
     [ -z "$flag" ] && die "Falta la flag"
-    echo -e "${y}[*] Enviando flag a maquina id $id (difficulty $diff)...${e}"
+    step "Enviando flag a maquina id $id $GRY(difficulty $diff)$RST"
     local out; out=$(api5 POST "/machine/own" "{\"flag\":\"$flag\",\"id\":$id,\"difficulty\":$diff}")
     local msg; msg=$(echo "$out" | jq -r '.message // .status // .')
     if echo "$msg" | grep -qiE "incorrect|invalid|wrong|not found|error|can ?not|cannot|accessed"; then
-        echo -e "${r}[!] $msg${e}"; return 1
-    else
-        echo -e "${g}[+] $msg${e}"
+        bad "$msg"; return 1
     fi
+    printf '%s%s  %s%s\n' "$GRN$BOLD" "$I_FLAG" "$msg" "$RST"
 }
 
 cmd_vpn() {
     local out="${1:-htb.ovpn}"
-    echo -e "${y}[*] Descargando VPN en $out ...${e}"
+    step "Descargando VPN en $out ..."
     curl -s --max-time 60 "$API/access/ovpnfile/0/0" \
         -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" -o "$out"
     if [ -s "$out" ] && head -1 "$out" | grep -q "client"; then
-        echo -e "${g}[+] VPN guardada en $out${e}"
+        ok "VPN guardada en $out"
     else
-        echo -e "${r}[!] No se pudo descargar (revisa el servidor VPN seleccionado en la web).${e}"
+        bad "No se pudo descargar (revisa el servidor VPN seleccionado en la web)."
         head -c 200 "$out"; echo
     fi
 }
 
-# Ejecuta un comando como root, usando la pass guardada si existe
 as_root() {
     local SP="$HOME/.config/htb/sudo.pass"
-    if [ -f "$SP" ]; then
-        sudo -S -k "$@" < "$SP"
-    else
-        sudo "$@"
-    fi
+    if [ -f "$SP" ]; then sudo -S -k "$@" < "$SP"; else sudo "$@"; fi
 }
 
-# Imprime el PID del openvpn lanzado por htb, si sigue vivo y es un openvpn real
 htb_vpn_pid() {
     local pid
     [ -r "$PID_FILE" ] || return 1
-    pid=$(tr -dc '0-9' < "$PID_FILE")
-    [ -n "$pid" ] || return 1
+    pid=$(tr -dc '0-9' < "$PID_FILE"); [ -n "$pid" ] || return 1
     [ -d "/proc/$pid" ] || return 1
     [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = "openvpn" ] || return 1
     echo "$pid"
 }
 
-# PIDs de openvpn cuya linea de comandos usa el .ovpn indicado
-# (fallback para VPNs levantadas por htb antes de que existiera el pidfile)
 openvpn_pids_for_config() {
     local f="$1" pid
     for pid in $(pgrep -x openvpn 2>/dev/null); do
-        if tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -qxF "$f"; then
-            echo "$pid"
-        fi
+        if tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -qxF "$f"; then echo "$pid"; fi
     done
 }
 
-# Conecta la VPN (dedivip) en background y comprueba tun0
 cmd_connect() {
     local f="${1:-$VPN_FILE}"
     [ -f "$f" ] || die "No existe el .ovpn: $f"
     if ip a show tun0 &>/dev/null; then
-        echo -e "${g}[+] Ya hay tun0 levantado: $(ip -4 a show tun0 | awk '/inet/{print $2}')${e}"
+        ok "Ya hay tun0 levantado: $GRN$(ip -4 a show tun0 | awk '/inet/{print $2}')$RST"
         return 0
     fi
-    echo -e "${y}[*] Conectando VPN con $f (sudo)...${e}"
-    as_root openvpn --config "$f" \
-        --daemon \
-        --writepid "$PID_FILE" \
-        --log /tmp/htb_vpn.log
+    step "Conectando VPN con $f $GRY(sudo)$RST"
+    as_root openvpn --config "$f" --daemon --writepid "$PID_FILE" --log /tmp/htb_vpn.log
     local i
     for i in $(seq 1 15); do
         sleep 1
         if ip a show tun0 &>/dev/null; then
-            echo -e "${g}[+] VPN arriba: $(ip -4 a show tun0 | awk '/inet/{print $2}')${e}"
+            ok "VPN arriba: $GRN$BOLD$(ip -4 a show tun0 | awk '/inet/{print $2}')$RST"
             return 0
         fi
     done
-    echo -e "${r}[!] tun0 no aparece. Mira /tmp/htb_vpn.log${e}"; tail -5 /tmp/htb_vpn.log
+    bad "tun0 no aparece. Mira /tmp/htb_vpn.log"; tail -5 /tmp/htb_vpn.log
 }
 
-# Desconecta SOLO la VPN que levanto htb (por PID), nunca otras sesiones openvpn
 cmd_disconnect() {
     local f="${1:-$VPN_FILE}" pid pids n i
-
     pid=$(htb_vpn_pid) || pid=""
-
-    # Sin pidfile valido: intenta identificar el openvpn por su .ovpn
     if [ -z "$pid" ]; then
         pids=$(openvpn_pids_for_config "$f")
         n=$(printf '%s\n' "$pids" | grep -c .)
-        if [ "$n" -eq 1 ]; then
-            pid="$pids"
+        if [ "$n" -eq 1 ]; then pid="$pids"
         elif [ "$n" -gt 1 ]; then
-            echo -e "${r}[!] Hay $n procesos openvpn usando $f. No mato ninguno por seguridad.${e}" >&2
-            pgrep -a -x openvpn >&2
-            return 1
+            bad "Hay $n procesos openvpn usando $f. No mato ninguno por seguridad."
+            pgrep -a -x openvpn >&2; return 1
         fi
     fi
-
     if [ -z "$pid" ]; then
         if pgrep -x openvpn &>/dev/null; then
-            echo -e "${y}[*] Hay openvpn corriendo, pero ninguno lo lanzo htb.${e}"
-            echo -e "${y}    No toco VPNs ajenas. Procesos actuales:${e}"
+            warn "Hay openvpn corriendo, pero ninguno lo lanzo htb."
+            printf '   %sNo toco VPNs ajenas. Procesos actuales:%s\n' "$GRY" "$RST"
             pgrep -a -x openvpn
             return 1
         fi
-        echo -e "${y}[*] No hay VPN de htb conectada.${e}"
+        warn "No hay VPN de htb conectada."
         return 0
     fi
-
-    echo -e "${y}[*] Desconectando VPN de htb (pid $pid, sudo)...${e}"
+    step "Desconectando VPN de htb $GRY(pid $pid, sudo)$RST"
     as_root kill "$pid"
     for i in $(seq 1 15); do
         if [ ! -d "/proc/$pid" ]; then
             as_root rm -f "$PID_FILE"
-            echo -e "${g}[+] VPN desconectada (pid $pid terminado).${e}"
-            ip a show tun0 &>/dev/null && echo -e "${y}[*] Ojo: tun0 sigue arriba (otra VPN activa).${e}"
+            ok "VPN desconectada (pid $pid terminado)."
+            ip a show tun0 &>/dev/null && warn "Ojo: tun0 sigue arriba (otra VPN activa)."
             return 0
         fi
         sleep 1
     done
-    echo -e "${r}[!] El proceso $pid sigue vivo. Prueba: sudo kill -9 $pid${e}"
+    bad "El proceso $pid sigue vivo. Prueba: sudo kill -9 $pid"
     return 1
 }
 
 cmd_vpnstatus() {
     local pid; pid=$(htb_vpn_pid) || pid=""
     if ip a show tun0 &>/dev/null; then
-        echo -e "${g}[+] VPN conectada: $(ip -4 a show tun0 | awk '/inet/{print $2}')${e}"
-        [ -n "$pid" ] && echo -e "${b}    (openvpn de htb: pid $pid)${e}"
+        printf '%s%s%s  VPN conectada  %s%s%s\n' "$GRN" "$I_NET" "$RST" \
+            "$GRN$BOLD" "$(ip -4 a show tun0 | awk '/inet/{print $2}')" "$RST"
+        [ -n "$pid" ] && printf '   %sopenvpn de htb: pid %s%s\n' "$GRY" "$pid" "$RST"
     else
-        echo -e "${r}[!] Sin tun0 (VPN desconectada). Usa: htb connect${e}"
+        printf '%s%s%s  Sin tun0 (VPN desconectada)  %s-> htb connect%s\n' \
+            "$RED" "$I_NET" "$RST" "$GRY" "$RST"
     fi
 }
 
-cmd_version() { echo "htb $HTB_VERSION"; }
-
-usage() {
-    cat <<EOF
-$(echo -e "${g}htb${e}") $HTB_VERSION - cliente HackTheBox (API v4)
-
-  htb whoami                 Quien eres (token check)
-  htb list [N]               Ultimas N maquinas (default 15)
-  htb latest                 La maquina mas reciente (release de hoy)
-  htb season                 Maquinas de la season activa
-  htb info <nombre|id>       Info de una maquina
-  htb active                 Maquina spawneada ahora mismo + IP
-  htb spawn <nombre|id>      Spawnea y espera la IP
-  htb ip [nombre|id]         Espera/imprime la IP de la maquina activa
-  htb stop [nombre|id]       Para la maquina (activa por defecto)
-  htb reset [nombre|id]      Resetea la maquina
-  htb own <flag> [diff]              Sube flag a la maquina ACTIVA
-  htb own <nombre|id> <flag> [diff]  Sube flag a una maquina concreta
-  htb vpn [archivo.ovpn]     Descarga tu config VPN desde la API
-  htb connect [archivo]      Conecta la VPN (dedivip) y comprueba tun0
-  htb disconnect [archivo]   Desconecta SOLO la VPN lanzada por htb (por PID)
-  htb vpnstatus              Comprueba si tun0 esta arriba
-  htb version                Version de htb
-
-Flag rapida (first blood): primero 'htb spawn X', luego pegas user y root:
-  htb own <hash_user>
-  htb own <hash_root>
-EOF
+# OJO: "fc-list | grep -q" rompe con 'set -o pipefail': grep sale al primer
+# match, fc-list recibe SIGPIPE y la tuberia devuelve error. grep -c lee todo.
+font_installed() {
+    local n
+    n=$(fc-list 2>/dev/null | grep -ci "$1 Nerd Font") || n=0
+    [ "${n:-0}" -gt 0 ] 2>/dev/null
 }
 
-# ---------------- Dispatch -----------------
+# Instala una Nerd Font sin tocar el gestor de paquetes:
+# funciona igual en Arch, Debian/Ubuntu, Fedora, Void, macOS...
+cmd_font() {
+    local name="${1:-Hack}"
+    local ver="${HTB_NF_VERSION:-v3.4.0}"
+    local url="https://github.com/ryanoasis/nerd-fonts/releases/download/$ver/$name.zip"
+    local dir tmp zip
+
+    if [ "$(uname -s)" = "Darwin" ]; then dir="$HOME/Library/Fonts"
+    else dir="${XDG_DATA_HOME:-$HOME/.local/share}/fonts"; fi
+    dir="$dir/${name}NerdFont"
+
+    if font_installed "$name"; then
+        ok "'$name Nerd Font' ya esta instalada."
+        printf '   %sSolo falta seleccionarla como fuente de tu terminal.%s\n' "$GRY" "$RST"
+        return 0
+    fi
+
+    command -v curl >/dev/null 2>&1 || die "Necesito curl"
+    tmp=$(mktemp -d) || die "No pude crear un directorio temporal"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmp'" RETURN
+    zip="$tmp/$name.zip"
+
+    step "Descargando $name Nerd Font ($ver)..."
+    if ! curl -fsSL --retry 2 --max-time 300 -o "$zip" "$url"; then
+        bad "No se pudo descargar $url"
+        printf '   %sComprueba el nombre. Lista: https://github.com/ryanoasis/nerd-fonts/releases%s\n' "$GRY" "$RST"
+        return 1
+    fi
+
+    mkdir -p "$dir" || die "No pude crear $dir"
+    step "Extrayendo en $dir ..."
+    if   command -v unzip  >/dev/null 2>&1; then unzip -oq "$zip" -d "$dir"
+    elif command -v bsdtar >/dev/null 2>&1; then bsdtar -xf "$zip" -C "$dir"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$zip" "$dir"
+    else
+        bad "Necesito unzip, bsdtar o python3 para extraer el zip"; return 1
+    fi
+
+    # fuera de lo que no son fuentes
+    find "$dir" -maxdepth 1 -type f \( -iname '*.md' -o -iname '*.txt' \) -delete 2>/dev/null
+
+    if command -v fc-cache >/dev/null 2>&1; then
+        step "Actualizando cache de fuentes..."
+        fc-cache -f "$dir" >/dev/null 2>&1 || fc-cache -f >/dev/null 2>&1
+    else
+        warn "No hay fc-cache (fontconfig). En macOS no hace falta."
+    fi
+
+    if font_installed "$name"; then
+        ok "Instalada: $name Nerd Font"
+    else
+        ok "Ficheros copiados en $dir"
+        warn "fontconfig aun no la ve; abre una terminal nueva y reintenta 'htb icons'."
+    fi
+
+    printf '\n  %sSelecciona la fuente en tu terminal:%s\n' "$BOLD" "$RST"
+    printf '   %skitty%s        font_family %s NF\n'        "$CYN" "$RST" "$name"
+    printf '   %salacritty%s    font.normal.family: "%s Nerd Font"\n' "$CYN" "$RST" "$name"
+    printf '   %swezterm%s      font = wezterm.font("%s Nerd Font")\n' "$CYN" "$RST" "$name"
+    printf '   %sGNOME/Konsole%s  ajustes del perfil -> fuente personalizada\n\n' "$CYN" "$RST"
+}
+
+cmd_icons() {
+    printf '  Juego actual: %s%s%s   (forzar con HTB_ICONS=nerd|emoji|ascii)\n' "$BOLD$CYN" "$ICONSET" "$RST"
+    if [ "$ICONSET" != nerd ]; then
+        printf '  %sPara los iconos bonitos:%s htb font%s\n' "$GRY" "$YEL" "$RST"
+    fi
+    echo
+    printf '  %s %s %s %s %s   os\n' "$(os_icon windows)" "$(os_icon linux)" \
+        "$(os_icon freebsd)" "$(os_icon macos)" "$(os_icon other)"
+    printf '  %s %s   own / no-own\n' "$(own_fmt true)" "$(own_fmt false)"
+    printf '  %s %s   blood / sin blood\n' "$(blood_fmt true)" "$(blood_fmt false)"
+    printf '  %s %s %s %s   mensajes\n' "$GRN$I_OK$RST" "$RED$I_NO$RST" "$YEL$I_WARN$RST" "$BLU$I_INFO$RST"
+    printf '  %s %s %s %s   dificultad\n' "$(diff_fmt Easy)" "$(diff_fmt Medium)" \
+        "$(diff_fmt Hard)" "$(diff_fmt Insane)"
+    echo
+}
+
+cmd_version() { printf 'htb %s%s%s  %s(iconos: %s)%s\n' "$BOLD$GRN" "$HTB_VERSION" "$RST" "$GRY" "$ICONSET" "$RST"; }
+
+usage() {
+    printf '\n  %s%shtb%s %s%s%s  %s- cliente HackTheBox%s\n' \
+        "$BOLD" "$GRN" "$RST" "$GRY" "$HTB_VERSION" "$RST" "$GRY" "$RST"
+    printf '  %sUso: htb <comando> [argumentos]%s\n\n' "$GRY" "$RST"
+    local rows=(
+      "whoami\tQuien eres (token check)"
+      "list [N]\tUltimas N maquinas (default 15)"
+      "latest\tLa maquina mas reciente (release de hoy)"
+      "season\tMaquinas de la season activa"
+      "info <nombre|id>\tInfo de una maquina"
+      "active\tMaquina spawneada ahora mismo + IP"
+      "spawn <nombre|id>\tSpawnea y espera la IP"
+      "ip [nombre|id]\tEspera/imprime la IP de la activa"
+      "stop [nombre|id]\tPara la maquina (activa por defecto)"
+      "reset [nombre|id]\tResetea la maquina"
+      "own <flag> [diff]\tSube flag a la maquina ACTIVA"
+      "own <maq> <flag>\tSube flag a una maquina concreta"
+      "vpn [archivo]\tDescarga tu config VPN desde la API"
+      "connect [archivo]\tConecta la VPN y comprueba tun0"
+      "disconnect\tDesconecta SOLO la VPN lanzada por htb"
+      "vpnstatus\tComprueba si tun0 esta arriba"
+      "icons\tMuestra el juego de iconos detectado"
+      "font [Hack]\tInstala una Nerd Font (Arch/Debian/Fedora/macOS)"
+      "version\tVersion de htb"
+    )
+    local row cmd desc
+    for row in "${rows[@]}"; do
+        IFS=$'\t' read -r cmd desc <<< "$(printf '%b' "$row")"
+        printf '    '
+        cell "$BOLD$WHT$cmd$RST" 22
+        printf '  %s%s%s\n' "$GRY" "$desc" "$RST"
+    done
+    printf '\n  %sFirst blood:%s  htb spawn X  ->  htb own <user>  ->  htb own <root>\n' "$YEL" "$RST"
+    printf '  %sApariencia:%s   HTB_ICONS=nerd|emoji|ascii   NO_COLOR=1\n\n' "$GRY" "$RST"
+}
+
+# ================= Dispatch =================
 cmd="$1"; shift 2>/dev/null
 case "$cmd" in
     whoami)        cmd_whoami "$@" ;;
@@ -388,7 +656,9 @@ case "$cmd" in
     connect)       cmd_connect "$@" ;;
     disconnect|dc) cmd_disconnect "$@" ;;
     vpnstatus)     cmd_vpnstatus "$@" ;;
+    icons)         cmd_icons ;;
+    font|setup-font) cmd_font "$@" ;;
     version|--version|-V) cmd_version ;;
     ""|-h|--help|help) usage ;;
-    *) echo -e "${r}[!] Comando desconocido: $cmd${e}"; usage; exit 1 ;;
+    *) bad "Comando desconocido: $cmd"; usage; exit 1 ;;
 esac
