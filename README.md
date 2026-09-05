@@ -89,7 +89,7 @@ htb <comando> [argumentos]
 | `htb list [N]` | Últimas N máquinas (por defecto 15), más recientes primero |
 | `htb latest` | La máquina más reciente (la release de hoy) |
 | `htb season` | Máquinas de la season activa con estado de bloods |
-| `htb info <nombre\|id>` | Perfil completo de una máquina |
+| `htb info <nombre\|id>` | Perfil de una máquina: owns, rank y first bloods |
 | `htb active` | Máquina spawneada ahora mismo + IP |
 | `htb spawn <nombre\|id>` | Spawnea una máquina y espera la IP |
 | `htb ip [nombre\|id]` | Espera e imprime la IP de la máquina activa |
@@ -256,21 +256,34 @@ $ htb stop
 
 ### `htb info <nombre|id>`
 
-Perfil completo de una máquina: OS, dificultad, puntos, IP, si la tienes pwneada...
+Perfil completo de una máquina: sistema, dificultad, puntos, IP, tus owns con el
+tiempo que tardaste, tu posición en la máquina y **quién se llevó las first bloods**.
+Si la blood es tuya, aparece marcada.
 
 ```
-$ htb info Connected
-{
-  "id": 906,
-  "name": "Connected",
-  "os": "Linux",
-  "difficultyText": "Easy",
-  "ip": "10.129.9.213",
-  "points": 20,
-  "authUserInUserOwns": true,
-  "authUserInRootOwns": false
-}
+$ htb info Scaffold
+╭──────────────────────────────────────────────────────────────────────╮
+│   Scaffold                                                          │
+╰──────────────────────────────────────────────────────────────────────╯
+   ID            978
+   Sistema         Windows
+   Dificultad    ● Hard
+   Puntos        40
+   IP            (no spawneada)
+   Release       2026-09-05
+   Activa        ● si
+
+   User own        en 1H 2M 14S
+   Root own        en 0H 41M 54S
+   Tu rank       #16
+
+   User blood     admiin  0H 28M 7S
+   Root blood     ahos6  0H 10M 46S
 ```
+
+El dueño de cada blood se compara con el ID del usuario autenticado, que se
+obtiene de `/user/info` en tiempo de ejecución: no hay ningún ID fijado en el
+código, así que cada uno ve marcadas sus propias bloods.
 
 ---
 

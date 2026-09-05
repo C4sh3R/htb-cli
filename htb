@@ -12,7 +12,7 @@
 
 set -o pipefail
 
-HTB_VERSION="1.3.0"
+HTB_VERSION="1.3.1"
 
 # ================= Apariencia =================
 
@@ -38,6 +38,7 @@ detect_icons() {
     printf 'emoji'
 }
 ICONSET="$(detect_icons)"
+SELF_ID=""
 
 if [ "$IS_TTY" = 1 ] && [ -z "$NO_COLOR" ]; then
     RST=$'\e[0m';        BOLD=$'\e[1m';        DIM=$'\e[2m'
@@ -299,14 +300,37 @@ cmd_latest() {
     echo
 }
 
+# ID del usuario autenticado (para saber si una blood es nuestra)
+self_id() {
+    [ -n "$SELF_ID" ] || SELF_ID=$(api GET "/user/info" | jq -r '.info.id // empty')
+    printf '%s' "$SELF_ID"
+}
+
+# Pinta una blood: nombre, tiempo y marca si es nuestra
+blood_line() {
+    local who="$1" wid="$2" tdiff="$3" me
+    if [ -z "$who" ] || [ "$who" = "null" ] || [ "$who" = "-" ]; then
+        printf '%ssin blood registrada%s' "$GRY" "$RST"; return
+    fi
+    me=$(self_id)
+    if [ -n "$me" ] && [ "$wid" = "$me" ]; then
+        printf '%s%s %s  %s%s  <- TUYA%s' "$RED$BOLD" "$I_BLOOD" "$who" "$tdiff" "$YEL" "$RST"
+    else
+        printf '%s%s%s %s  %s%s%s' "$RED" "$I_BLOOD" "$RST" "$who" "$GRY" "$tdiff" "$RST"
+    fi
+}
+
 cmd_info() {
     local id; id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
     local out; out=$(api GET "/machine/profile/$id" \
         | jq -r '.info | [.id,.os,.name,.difficultyText,(.ip//"-"),(.points//0),.release,
-                 (.active|tostring),(.authUserInUserOwns|tostring),(.authUserInRootOwns|tostring)] | @tsv')
+                 (.active|tostring),(.authUserInUserOwns|tostring),(.authUserInRootOwns|tostring),
+                 (.userBlood.user.name//"-"),(.userBlood.user.id//"-"),(.userBlood.blood_difference//"-"),
+                 (.rootBlood.user.name//"-"),(.rootBlood.user.id//"-"),(.rootBlood.blood_difference//"-"),
+                 (.authUserFirstUserTime//"-"),(.authUserFirstRootTime//"-"),(.ownRank//"-")] | @tsv')
     [ -z "$out" ] && die "No se pudo obtener el perfil de la maquina"
-    local mid os name diff ip pts rel act uo ro
-    IFS=$'\t' read -r mid os name diff ip pts rel act uo ro <<< "$out"
+    local mid os name diff ip pts rel act uo ro ubn ubi ubd rbn rbi rbd fut frt rank
+    IFS=$'\t' read -r mid os name diff ip pts rel act uo ro ubn ubi ubd rbn rbi rbd fut frt rank <<< "$out"
     title "$(os_icon "$os")  $name"
     field "ID"         "$WHT$mid$RST"
     field "Sistema"    "$(os_icon "$os")  $os"
@@ -315,8 +339,15 @@ cmd_info() {
     field "IP"         "$( [ "$ip" != "-" ] && [ "$ip" != "null" ] && printf '%s%s%s' "$GRN$BOLD" "$ip" "$RST" || printf '%s(no spawneada)%s' "$GRY" "$RST")"
     field "Release"    "$GRY${rel:0:10}$RST"
     field "Activa"     "$( [ "$act" = true ] && printf '%s%s si%s' "$GRN" "$I_DOT" "$RST" || printf '%s%s no%s' "$GRY" "$I_NO" "$RST")"
-    field "User own"   "$(own_fmt "$uo")"
-    field "Root own"   "$(own_fmt "$ro")"
+    printf '\n'
+    field "User own"   "$(own_fmt "$uo")$( [ "$fut" != "-" ] && printf '  %sen %s%s' "$GRY" "$fut" "$RST")"
+    field "Root own"   "$(own_fmt "$ro")$( [ "$frt" != "-" ] && printf '  %sen %s%s' "$GRY" "$frt" "$RST")"
+    [ "$rank" != "-" ] && field "Tu rank" "#$rank"
+    printf '\n'
+    # resolver el ID propio aqui (dentro de $(...) la cache se perderia en el subshell)
+    if [ "$ubn" != "-" ] || [ "$rbn" != "-" ]; then self_id >/dev/null; fi
+    field "User blood" "$(blood_line "$ubn" "$ubi" "$ubd")"
+    field "Root blood" "$(blood_line "$rbn" "$rbi" "$rbd")"
     echo
 }
 
