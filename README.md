@@ -20,7 +20,7 @@ htb season               →  lista las máquinas de la season con estado de blo
 - Iconos por sistema operativo (Windows/Linux/BSD/macOS), dificultad coloreada y marcas de *own* / *blood*
 - `htb font` instala una Nerd Font sin tocar el gestor de paquetes (igual en Arch, Debian, Fedora o macOS)
 - El token se guarda una vez en `~/.config/htb/token` o se pasa por variable de entorno
-- Gestión de VPN integrada: descarga la config, conecta, comprueba `tun0`
+- Gestión de VPN integrada: varios perfiles (Labs, Fortress, Starting Point…), descarga por producto, conexión con selector y cambio en caliente
 
 ---
 
@@ -63,15 +63,21 @@ El token lo sacas de **HackTheBox → Account Settings → API Token**.
 export HTB_TOKEN="eyJ0eXAiOiJKV1..."
 ```
 
-### VPN por defecto
+### Carpeta de VPNs
 
-> ⚠️ **Importante:** la ruta de la VPN es personal — depende de dónde tengas guardado tu `.ovpn`. La variable `VPN_FILE` al principio del script apunta a la ruta del autor, así que **cámbiala por la tuya** (o usa `HTB_VPN_FILE`), o pásale el archivo directamente a `htb connect /ruta/a/tu.ovpn`.
+HTB da un `.ovpn` distinto por producto (Labs, Fortress, Starting Point, Release Arena…). `htb` los guarda todos juntos en una carpeta y tú eliges cuál conectar.
+
+La carpeta se autodetecta entre `~/Desktop/c4sh3r/HTB/vpn`, `~/HTB/vpn` y `~/.config/htb/vpn` (la primera que exista). Para fijar la tuya:
+
+```bash
+export HTB_VPN_DIR="/ruta/a/tus/ovpn"
+```
+
+Si prefieres el comportamiento antiguo de un único archivo fijo, `HTB_VPN_FILE` sigue funcionando y salta el selector:
 
 ```bash
 export HTB_VPN_FILE="/ruta/a/tu/machines.ovpn"
 ```
-
-O edita la variable `VPN_FILE` al principio del script.
 
 ---
 
@@ -97,10 +103,11 @@ htb <comando> [argumentos]
 | `htb reset [nombre\|id]` | Resetea la máquina activa (o la que indiques) |
 | `htb own <flag> [dif]` | Sube una flag a la máquina **activa** |
 | `htb own <nombre\|id> <flag> [dif]` | Sube una flag a una máquina concreta |
-| `htb vpn [archivo]` | Descarga tu config VPN desde la API |
-| `htb connect [archivo]` | Conecta la VPN y verifica `tun0` |
-| `htb disconnect [archivo]` | Desconecta **solo** la VPN lanzada por `htb` (por PID) |
-| `htb vpnstatus` | Comprueba si `tun0` está activo |
+| `htb vpn [producto]` | Descarga el `.ovpn` de un producto (`labs`, `sp`, `fortress`…) |
+| `htb vpns` | Lista tus perfiles VPN locales y marca el conectado |
+| `htb connect [perfil]` | Conecta la VPN (menú si no dices cuál) |
+| `htb disconnect [perfil]` | Desconecta **solo** la VPN lanzada por `htb` (por PID) |
+| `htb vpnstatus` | Qué VPN está conectada y con qué perfil |
 | `htb icons` | Muestra el juego de iconos detectado |
 | `htb font [Fuente]` | Instala una Nerd Font (por defecto `Hack`) |
 | `htb version` | Versión de `htb` |
@@ -287,27 +294,110 @@ código, así que cada uno ve marcadas sus propias bloods.
 
 ---
 
-### `htb vpn [archivo]`
+### `htb vpn [producto]`
 
-Descarga tu configuración VPN actual desde la API (por defecto la guarda como `htb.ovpn`).
+Descarga el `.ovpn` del producto que le digas, usando el servidor que tengas asignado en HTB. Sin argumentos lista los productos y a qué servidor estás asignado en cada uno:
 
-```bash
-htb vpn
-htb vpn ~/vpn/eu-vip.ovpn
+```
+$ htb vpn
+╭──────────────────────────────────────────╮
+│ Productos VPN de HackTheBox              │
+╰──────────────────────────────────────────╯
+  labs                EU Machines VIP+ 5        EU
+  starting_point      EU StartingPoint 1        EU
+  fortresses          EU Fortress 1             EU
+  endgames            sin acceso
+```
+
+Con un producto, lo descarga a tu carpeta de VPNs:
+
+```
+$ htb vpn fortress
+🚀 Consultando servidores de fortresses ...
+🚀 Descargando EU Fortress 1 (id 429) ...
+✅ VPN guardada en ~/HTB/vpn/fortresses_eu-fort-1.ovpn  (edge-eu-fort-1.hackthebox.eu)
+   Conectar: htb connect fortresses_eu-fort-1
+```
+
+Alias aceptados: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `endgame`, `arena`/`release`, `season`.
+
+| Opción | Qué hace |
+|---|---|
+| `-p`, `--pick` | Menú para elegir un servidor concreto en vez del asignado |
+| `--tcp` | Descarga la variante TCP |
+| `-o <ruta>` | Guarda en una ruta concreta |
+
+El nombre del archivo se deriva del servidor (`eu-fort-1`, `eu-dedivip-5`…). Si ya tenías un `.ovpn` de ese mismo servidor, **actualiza ese archivo en su sitio** en vez de crear un duplicado.
+
+---
+
+### `htb vpns`
+
+Lista los `.ovpn` de tu carpeta, con el tipo de lab que es cada uno y cuál está conectado ahora:
+
+```
+$ htb vpns
+╭──────────────────────────────────────────╮
+│ Perfiles VPN   ~/HTB/vpn                 │
+╰──────────────────────────────────────────╯
+  ·  eu-starting-point-1-dhcp   Starting Point  edge-eu-starting-point-1-dhcp.hackthebox.eu
+  ●  fortresses_eu-fort-1       Fortress        edge-eu-fort-1.hackthebox.eu   ✅ conectado
+  ·  htb                        Labs VIP+       edge-eu-dedivip-5.hackthebox.eu
 ```
 
 ---
 
-### `htb connect [archivo.ovpn]`
+### `htb connect [perfil]`
 
 Conecta la VPN con `openvpn --daemon` y espera hasta 15 segundos a que `tun0` suba. Guarda el PID del proceso en `/run/htb-openvpn.pid` (`HTB_VPN_PID_FILE`) para que `htb disconnect` sepa exactamente cuál es *su* proceso.
 
-> La ruta por defecto depende de dónde tengas tu `.ovpn`. Si no pasas archivo, usa `VPN_FILE`/`HTB_VPN_FILE` — asegúrate de haberla puesto a tu ruta (ver [VPN por defecto](#vpn-por-defecto)). También puedes pasar el archivo directamente:
+El perfil se puede escribir de varias formas — todas estas valen:
+
+```bash
+htb connect fortress                  # alias de producto
+htb connect fort                      # trozo del nombre
+htb connect fortresses_eu-fort-1      # nombre del archivo
+htb connect ~/vpn/mi-config.ovpn      # ruta directa
+```
+
+Sin argumento, si tienes más de un `.ovpn` te saca un menú:
 
 ```
-$ htb connect ~/vpn/mi-config.ovpn
-[*] Conectando VPN con /ruta/machines.ovpn (sudo)...
-[+] VPN arriba: 10.10.14.5/23
+$ htb connect
+
+  Perfiles VPN en ~/HTB/vpn
+
+    1) Starting Point  edge-eu-starting-point-1-dhcp.hackthebox.eu
+       eu-starting-point-1-dhcp.ovpn
+    2) Fortress        edge-eu-fort-1.hackthebox.eu
+       fortresses_eu-fort-1.ovpn
+    3) Labs VIP+       edge-eu-dedivip-5.hackthebox.eu
+       htb.ovpn
+
+  Elige [1-3]: 2
+🚀 Conectando fortresses_eu-fort-1.ovpn (sudo)
+✅ VPN arriba (Fortress): 10.10.15.177/23
+```
+
+Solo mantiene **una** VPN de HTB a la vez. Si ya hay una conectada y pides otra, te avisa y pregunta antes de cambiar (`-f` para no preguntar):
+
+```
+$ htb connect labs -f
+⚠️  Ya hay una VPN de htb activa: fortresses_eu-fort-1.ovpn
+📌 Cambiando a htb.ovpn ...
+🚀 Desconectando fortresses_eu-fort-1.ovpn (pid 20999, sudo)
+✅ VPN desconectada (pid 20999 terminado).
+🚀 Conectando htb.ovpn (sudo)
+✅ VPN arriba (Labs VIP+): 10.10.14.73/23
+```
+
+Si el perfil que pides no existe, o es ambiguo, te lo dice sin tocar nada:
+
+```
+$ htb connect eu
+❌ 'eu' coincide con varios perfiles:
+   - eu-starting-point-1-dhcp.ovpn
+   - fortresses_eu-fort-1.ovpn
 ```
 
 Si guardas tu contraseña de sudo en `~/.config/htb/sudo.pass`, la conexión es completamente no interactiva:
@@ -329,7 +419,7 @@ $ htb disconnect
 [+] VPN desconectada (pid 4821 terminado).
 ```
 
-Si no hay pidfile válido (por ejemplo, una VPN levantada con una versión anterior), busca procesos `openvpn` cuya línea de comandos use ese `.ovpn`. Si encuentra exactamente uno, lo mata; si hay varios, o si los `openvpn` en marcha no son suyos, no toca nada y te los lista:
+Si no hay pidfile válido (por ejemplo, una VPN levantada con una versión anterior), busca procesos `openvpn` lanzados con algún `.ovpn` de tu carpeta de VPNs (o con el perfil que le pases). Si encuentra exactamente uno, lo mata; si hay varios, o si los `openvpn` en marcha no son suyos, no toca nada y te los lista:
 
 ```
 $ htb disconnect
@@ -342,7 +432,14 @@ $ htb disconnect
 
 ### `htb vpnstatus`
 
-Comprueba rápidamente si `tun0` está activo.
+Comprueba si `tun0` está activo y con qué perfil.
+
+```
+$ htb vpnstatus
+🌐  VPN conectada  10.10.15.177/23
+   perfil: fortresses_eu-fort-1.ovpn (Fortress)
+   openvpn de htb: pid 20999
+```
 
 ```
 $ htb vpnstatus

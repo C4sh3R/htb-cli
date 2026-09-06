@@ -12,7 +12,7 @@
 
 set -o pipefail
 
-HTB_VERSION="1.3.1"
+HTB_VERSION="1.4.0"
 
 # ================= Apariencia =================
 
@@ -146,7 +146,16 @@ API="https://labs.hackthebox.com/api/v4"
 API_V5="https://labs.hackthebox.com/api/v5"   # /machine/own migro aqui (v4 retirado)
 TOKEN_FILE="${HTB_TOKEN_FILE:-$HOME/.config/htb/token}"
 UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
-VPN_FILE="${HTB_VPN_FILE:-$HOME/Desktop/c4sh3r/HTB/vpn/c4sh/VIP/htb.ovpn}"
+# Carpeta con tus .ovpn (labs, fortress, starting point...). Se autodetecta.
+VPN_DIR="${HTB_VPN_DIR:-}"
+if [ -z "$VPN_DIR" ]; then
+    for _d in "$HOME/Desktop/c4sh3r/HTB/vpn" "$HOME/HTB/vpn" "$HOME/.config/htb/vpn"; do
+        [ -d "$_d" ] && { VPN_DIR="$_d"; break; }
+    done
+    VPN_DIR="${VPN_DIR:-$HOME/.config/htb/vpn}"
+fi
+# Opcional: fuerza SIEMPRE este .ovpn y salta el selector de perfiles
+VPN_FILE="${HTB_VPN_FILE:-}"
 PID_FILE="${HTB_VPN_PID_FILE:-/run/htb-openvpn.pid}"
 
 if [ -z "$HTB_TOKEN" ] && [ -f "$TOKEN_FILE" ]; then
@@ -439,23 +448,281 @@ cmd_own() {
     printf '%s%s  %s%s\n' "$GRN$BOLD" "$I_FLAG" "$msg" "$RST"
 }
 
-cmd_vpn() {
-    local out="${1:-htb.ovpn}"
-    step "Descargando VPN en $out ..."
-    curl -s --max-time 60 "$API/access/ovpnfile/0/0" \
-        -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" -o "$out"
-    if [ -s "$out" ] && head -1 "$out" | grep -q "client"; then
-        ok "VPN guardada en $out"
+# ================= VPN: perfiles y productos =================
+
+# Alias que puede escribir el usuario -> producto de la API de HTB
+vpn_product() {
+    case "${1,,}" in
+        labs|lab|machines|machine|vip|maquinas|maquina) printf 'labs' ;;
+        sp|start|starting|startingpoint|starting_point) printf 'starting_point' ;;
+        fort|fortress|fortresses|fortaleza|fortalezas)  printf 'fortresses' ;;
+        endgame|endgames|eg)                            printf 'endgames' ;;
+        arena|release|release_arena|releasearena)       printf 'release_arena' ;;
+        season|competitive|comp)                        printf 'competitive' ;;
+        *) return 1 ;;
+    esac
+}
+VPN_PRODUCTS=(labs starting_point fortresses endgames release_arena competitive)
+
+# Patron de nombre de fichero para cada producto (para 'htb connect fortress')
+vpn_product_pat() {
+    case "$1" in
+        labs)           printf 'lab|machine|vip|dedivip|htb' ;;
+        starting_point) printf 'start|_sp|^sp' ;;
+        fortresses)     printf 'fort' ;;
+        endgames)       printf 'endgame|_eg' ;;
+        release_arena)  printf 'arena|release' ;;
+        competitive)    printf 'competitive|season' ;;
+        *)              return 1 ;;
+    esac
+}
+
+# "remote edge-eu-fort-1.hackthebox.eu 1337" -> "edge-eu-fort-1.hackthebox.eu"
+ovpn_remote() { sed -n 's/^remote[[:space:]]\+\([^[:space:]]*\).*/\1/p' "$1" 2>/dev/null | head -1; }
+# ... -> "eu-fort-1"
+ovpn_slug()   { local h; h=$(ovpn_remote "$1"); h="${h%.hackthebox.*}"; printf '%s' "${h#edge-}"; }
+
+# Etiqueta legible a partir del nombre/slug del fichero
+ovpn_kind() {
+    case "${1,,}" in
+        *fort*)            printf 'Fortress' ;;
+        *start*|*-sp-*)    printf 'Starting Point' ;;
+        *endgame*|*-eg-*)  printf 'Endgame' ;;
+        *release*|*arena*) printf 'Release Arena' ;;
+        *dedivip*|*vip*)   printf 'Labs VIP+' ;;
+        *free*)            printf 'Labs Free' ;;
+        *lab*|*machine*)   printf 'Labs' ;;
+        *)                 printf '-' ;;
+    esac
+}
+
+# Lee una respuesta del usuario: del terminal real si se puede, si no de stdin
+# (asi funciona tambien dentro de $(...) y en entornos sin /dev/tty abrible)
+ask() {
+    if { : < /dev/tty; } 2>/dev/null; then read -r "$1" < /dev/tty
+    else read -r "$1"; fi
+}
+
+# Recorta a <ancho> anadiendo elipsis (solo texto plano, sin ANSI)
+trunc() {
+    local t="$1" w="$2" e='…'
+    [ "$ICONSET" = ascii ] && e='~'
+    [ "${#t}" -le "$w" ] && { printf '%s' "$t"; return; }
+    printf '%s%s' "${t:0:$((w-1))}" "$e"
+}
+
+list_ovpn() {
+    [ -d "$VPN_DIR" ] || return 1
+    find "$VPN_DIR" -maxdepth 3 -type f -name '*.ovpn' 2>/dev/null | sort
+}
+
+find_ovpn_by_remote() {
+    local host="$1" f
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        [ "$(ovpn_remote "$f")" = "$host" ] && { printf '%s' "$f"; return 0; }
+    done < <(list_ovpn)
+    return 1
+}
+
+# Resuelve un argumento a la ruta de un .ovpn.
+# Acepta: ruta, nombre exacto, subcadena del nombre, o alias de producto.
+# rc 0 = una coincidencia en stdout | 1 = ninguna | 2 = varias, todas en stdout
+resolve_ovpn() {
+    local q="$1" prod pat hits n f
+    [ -n "$q" ] || return 1
+    # 1) nombre de perfil dentro de VPN_DIR (antes que la ruta relativa: si no,
+    #    'htb connect htb' cogeria el propio script al lanzarlo desde el repo)
+    [ -f "$VPN_DIR/$q.ovpn" ]  && { printf '%s' "$VPN_DIR/$q.ovpn"; return 0; }
+    [ -f "$VPN_DIR/$q" ]       && { printf '%s' "$VPN_DIR/$q"; return 0; }
+    # 2) ruta explicita, solo si lo parece
+    case "$q" in
+        */*|*.ovpn) [ -f "$q" ] && { printf '%s' "$q"; return 0; } ;;
+    esac
+
+    if prod=$(vpn_product "$q"); then
+        pat=$(vpn_product_pat "$prod")
     else
-        bad "No se pudo descargar (revisa el servidor VPN seleccionado en la web)."
-        head -c 200 "$out"; echo
+        pat=$(printf '%s' "$q" | sed 's/[][\.^$*+?(){}|\\]/\\&/g')
     fi
+    hits=$(while IFS= read -r f; do
+               [ -n "$f" ] || continue
+               printf '%s' "$(basename "$f")" | grep -qiE "$pat" && printf '%s\n' "$f"
+           done < <(list_ovpn))
+    n=$(printf '%s' "$hits" | grep -c .)
+    [ "$n" -eq 1 ] && { printf '%s' "$hits"; return 0; }
+    [ "$n" -gt 1 ] && { printf '%s' "$hits"; return 2; }
+    return 1
+}
+
+# Menu interactivo. La lista va a stderr; la ruta elegida a stdout.
+pick_ovpn() {
+    local files=() f i n sel cur base
+    while IFS= read -r f; do [ -n "$f" ] && files+=("$f"); done < <(list_ovpn)
+    n=${#files[@]}
+    if [ "$n" -eq 0 ]; then
+        bad "No hay ningun .ovpn en $VPN_DIR"
+        printf '   %sBajate uno:  htb vpn labs   |   htb vpn fortress%s\n' "$GRY" "$RST" >&2
+        return 1
+    fi
+    [ "$n" -eq 1 ] && { printf '%s' "${files[0]}"; return 0; }
+    if [ "$IS_TTY" != 1 ]; then
+        bad "Hay $n perfiles VPN. Indica cual: htb connect <perfil>" >&2
+        return 1
+    fi
+    cur=$(htb_vpn_config) || cur=""
+    printf '\n  %sPerfiles VPN en %s%s\n\n' "$GRY" "$VPN_DIR" "$RST" >&2
+    for i in "${!files[@]}"; do
+        f="${files[$i]}"; base=$(basename "$f")
+        printf '    %s%s)%s ' "$BOLD$WHT" "$((i+1))" "$RST" >&2
+        cell "$(ovpn_kind "$base $(ovpn_slug "$f")")" 16 >&2
+        cell "$GRY$(ovpn_remote "$f")$RST" 40 >&2
+        [ "$f" = "$cur" ] && printf ' %s%s conectado%s' "$GRN" "$I_DOT" "$RST" >&2
+        printf '\n       %s%s%s\n' "$GRY" "$(trunc "$base" 56)" "$RST" >&2
+    done
+    printf '\n  %sElige [1-%s]: %s' "$GRY" "$n" "$RST" >&2
+    ask sel
+    [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "$n" ] \
+        || { bad "Seleccion invalida." >&2; return 1; }
+    printf '%s' "${files[$((sel-1))]}"
+}
+
+cmd_vpns() {
+    local files=() f i n cur base
+    while IFS= read -r f; do [ -n "$f" ] && files+=("$f"); done < <(list_ovpn)
+    n=${#files[@]}
+    title "Perfiles VPN   $VPN_DIR"
+    if [ "$n" -eq 0 ]; then
+        warn "Ningun .ovpn todavia.  Bajate uno:  htb vpn labs  |  htb vpn fortress"
+        return 0
+    fi
+    cur=$(htb_vpn_config) || cur=""
+    for f in "${files[@]}"; do
+        base=$(basename "$f")
+        if [ "$f" = "$cur" ]; then printf '  %s%s%s ' "$GRN" "$I_DOT" "$RST"
+        else                        printf '  %s%s%s ' "$GRY" "$I_NONE" "$RST"; fi
+        cell "$BOLD$WHT$(trunc "${base%.ovpn}" 28)$RST" 30
+        cell "$(ovpn_kind "$base $(ovpn_slug "$f")")" 16
+        printf '%s%s%s' "$GRY" "$(ovpn_remote "$f")" "$RST"
+        [ "$f" = "$cur" ] && printf '  %s%s conectado%s' "$GRN" "$I_OK" "$RST"
+        echo
+    done
+    printf '\n  %sConectar:  htb connect <perfil>   (o solo: htb connect)%s\n\n' "$GRY" "$RST"
+}
+
+# Descarga el .ovpn de un producto (labs, fortresses, ...) desde la API.
+cmd_vpn() {
+    local prod="" arg="" out="" tcp=0 pick=0 a
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -o|--out)   out="$2"; shift 2 ;;
+            --tcp)      tcp=1; shift ;;
+            -p|--pick)  pick=1; shift ;;
+            -h|--help)  vpn_help; return 0 ;;
+            -*)         die "Opcion desconocida: $1" ;;
+            *)          arg="$1"; shift ;;
+        esac
+    done
+
+    if [ -z "$arg" ]; then cmd_vpn_products; return 0; fi
+    prod=$(vpn_product "$arg") || die "Producto desconocido: $arg  (${VPN_PRODUCTS[*]})"
+
+    step "Consultando servidores de $BOLD$prod$RST ..."
+    local json; json=$(api GET "/connections/servers?product=$prod")
+    [ "$(echo "$json" | jq -r '.status // empty')" = "true" ] \
+        || die "La API no devuelve servidores para '$prod' (¿no tienes acceso a ese producto?)"
+
+    local sid sname
+    if [ "$pick" = 1 ]; then
+        local rows=() row i sel
+        while IFS= read -r row; do [ -n "$row" ] && rows+=("$row"); done < <(
+            echo "$json" | jq -r '.data.options // {} | to_entries[] | .value | to_entries[] | .value.servers // {}
+                                  | to_entries[] | .value | "\(.id)\t\(.friendly_name)\t\(.location)\t\(.current_clients)\t\(.full)"')
+        [ "${#rows[@]}" -eq 0 ] && die "Sin servidores disponibles para '$prod'"
+        printf '\n' >&2
+        for i in "${!rows[@]}"; do
+            IFS=$'\t' read -r sid sname _ _ _ <<< "${rows[$i]}"
+            local _loc _cli _full; IFS=$'\t' read -r _ _ _loc _cli _full <<< "${rows[$i]}"
+            printf '    %s%s)%s ' "$BOLD$WHT" "$((i+1))" "$RST" >&2
+            cell "$sname" 26 >&2
+            printf '%s%s  %s clientes%s' "$GRY" "$_loc" "$_cli" "$RST" >&2
+            [ "$_full" = "true" ] && printf ' %sLLENO%s' "$RED" "$RST" >&2
+            echo >&2
+        done
+        printf '\n  %sElige [1-%s]: %s' "$GRY" "${#rows[@]}" "$RST" >&2
+        ask sel
+        [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#rows[@]}" ] \
+            || die "Seleccion invalida."
+        IFS=$'\t' read -r sid sname _ <<< "${rows[$((sel-1))]}"
+    else
+        sid=$(echo   "$json" | jq -r '.data.assigned.id // empty')
+        sname=$(echo "$json" | jq -r '.data.assigned.friendly_name // empty')
+        [ -n "$sid" ] || die "No hay servidor asignado para '$prod'. Usa --pick para elegir uno."
+    fi
+
+    mkdir -p "$VPN_DIR"
+    local tmp; tmp=$(mktemp) || die "No puedo crear temporal"
+    step "Descargando $BOLD$sname$RST $GRY(id $sid$([ "$tcp" = 1 ] && echo ', tcp'))$RST ..."
+    curl -s --max-time 60 "$API/access/ovpnfile/$sid/$tcp" \
+        -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" -o "$tmp"
+
+    if ! grep -q '^remote ' "$tmp" 2>/dev/null; then
+        bad "Descarga invalida (¿token caducado o servidor lleno?)"
+        head -c 200 "$tmp"; echo; rm -f "$tmp"; return 1
+    fi
+
+    local host slug dest prev
+    host=$(ovpn_remote "$tmp"); slug=$(ovpn_slug "$tmp")
+    if [ -n "$out" ]; then
+        dest="$out"
+    elif prev=$(find_ovpn_by_remote "$host"); then
+        dest="$prev"                       # ya lo tenias: lo actualizo en su sitio
+    else
+        if [ "$(ovpn_kind "$slug")" = "-" ]; then dest="$VPN_DIR/${prod}_${slug}.ovpn"
+        else                                       dest="$VPN_DIR/${slug}.ovpn"; fi
+    fi
+    mv "$tmp" "$dest" && chmod 600 "$dest"
+    ok "VPN guardada en $BOLD$dest$RST  $GRY($host)$RST"
+    printf '   %sConectar:%s htb connect %s%s%s\n' "$GRY" "$RST" "$BOLD$WHT" "$(basename "${dest%.ovpn}")" "$RST"
+}
+
+# Panorama: que producto tienes asignado a que servidor
+cmd_vpn_products() {
+    local p json name loc
+    title "Productos VPN de HackTheBox"
+    for p in "${VPN_PRODUCTS[@]}"; do
+        json=$(api GET "/connections/servers?product=$p")
+        printf '  '
+        cell "$BOLD$WHT$p$RST" 20
+        if [ "$(echo "$json" | jq -r '.status // empty')" = "true" ]; then
+            name=$(echo "$json" | jq -r '.data.assigned.friendly_name // "-"')
+            loc=$(echo  "$json" | jq -r '.data.assigned.location // ""')
+            cell "$GRN$name$RST" 26
+            printf '%s%s%s\n' "$GRY" "$loc" "$RST"
+        else
+            printf '%ssin acceso%s\n' "$GRY" "$RST"
+        fi
+    done
+    printf '\n  %sDescargar:%s htb vpn fortress      %s(--pick para elegir servidor)%s\n' \
+        "$GRY" "$RST" "$GRY" "$RST"
+    printf '  %sAlias:%s labs, sp, fortress, endgame, arena, season\n\n' "$GRY" "$RST"
+}
+
+vpn_help() {
+    printf '\n  %shtb vpn [producto] [opciones]%s\n\n' "$BOLD$WHT" "$RST"
+    printf '    %ssin producto%s   lista los productos y tu servidor asignado\n' "$GRY" "$RST"
+    printf '    %sproducto%s       labs | sp | fortress | endgame | arena | season\n' "$GRY" "$RST"
+    printf '    %s-p, --pick%s     elegir servidor concreto en vez del asignado\n' "$GRY" "$RST"
+    printf '    %s--tcp%s          bajar la variante TCP\n' "$GRY" "$RST"
+    printf '    %s-o <ruta>%s      guardar en una ruta concreta\n\n' "$GRY" "$RST"
 }
 
 as_root() {
     local SP="$HOME/.config/htb/sudo.pass"
     if [ -f "$SP" ]; then sudo -S -k "$@" < "$SP"; else sudo "$@"; fi
 }
+
+tun_ip() { ip -4 -o a show "${1:-tun0}" 2>/dev/null | awk '{print $4}' | head -1; }
 
 htb_vpn_pid() {
     local pid
@@ -466,27 +733,92 @@ htb_vpn_pid() {
     echo "$pid"
 }
 
+# Ruta del .ovpn con el que se lanzo un openvpn concreto
+openvpn_config_of() {
+    tr '\0' '\n' < "/proc/$1/cmdline" 2>/dev/null | awk '/^--config$/{getline; print; exit}'
+}
+
+# Perfil que esta usando ahora mismo la VPN lanzada por htb
+htb_vpn_config() {
+    local pid cfg
+    pid=$(htb_vpn_pid) || return 1
+    cfg=$(openvpn_config_of "$pid"); [ -n "$cfg" ] || return 1
+    printf '%s' "$cfg"
+}
+
 openvpn_pids_for_config() {
     local f="$1" pid
     for pid in $(pgrep -x openvpn 2>/dev/null); do
-        if tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -qxF "$f"; then echo "$pid"; fi
+        [ "$(openvpn_config_of "$pid")" = "$f" ] && echo "$pid"
+    done
+}
+
+# openvpn lanzados con un .ovpn de nuestro VPN_DIR (por si se perdio el pidfile)
+openvpn_pids_in_vpndir() {
+    local pid cfg
+    for pid in $(pgrep -x openvpn 2>/dev/null); do
+        cfg=$(openvpn_config_of "$pid")
+        case "$cfg" in "$VPN_DIR"/*) echo "$pid" ;; esac
     done
 }
 
 cmd_connect() {
-    local f="${1:-$VPN_FILE}"
-    [ -f "$f" ] || die "No existe el .ovpn: $f"
-    if ip a show tun0 &>/dev/null; then
-        ok "Ya hay tun0 levantado: $GRN$(ip -4 a show tun0 | awk '/inet/{print $2}')$RST"
+    local f="" force=0 a target rc cur ans i
+    for a in "$@"; do
+        case "$a" in
+            -f|--force|-y|--yes) force=1 ;;
+            -*) die "Opcion desconocida: $a" ;;
+            *)  [ -z "$f" ] && f="$a" ;;
+        esac
+    done
+
+    if [ -n "$f" ]; then
+        target=$(resolve_ovpn "$f"); rc=$?
+        if [ "$rc" = 2 ]; then
+            bad "'$f' coincide con varios perfiles:"
+            printf '%s\n' "$target" | while IFS= read -r a; do
+                printf '   %s- %s%s\n' "$GRY" "$(basename "$a")" "$RST"; done
+            return 1
+        elif [ "$rc" != 0 ]; then
+            bad "No encuentro ningun .ovpn para '$f' en $VPN_DIR"
+            printf '   %sVer perfiles: htb vpns   |   Bajar uno: htb vpn %s%s\n' "$GRY" "$f" "$RST"
+            return 1
+        fi
+    elif [ -n "$VPN_FILE" ]; then
+        target="$VPN_FILE"
+    else
+        target=$(pick_ovpn) || return 1
+    fi
+    [ -f "$target" ] || die "No existe el .ovpn: $target"
+
+    cur=$(htb_vpn_config) || cur=""
+    if [ -n "$cur" ]; then
+        if [ "$cur" = "$target" ]; then
+            ok "Ya conectado con $BOLD$(basename "$cur")$RST: $GRN$BOLD$(tun_ip)$RST"
+            return 0
+        fi
+        warn "Ya hay una VPN de htb activa: $BOLD$(basename "$cur")$RST"
+        if [ "$force" = 1 ]; then
+            info "Cambiando a $(basename "$target") ..."
+        elif [ "$IS_TTY" = 1 ]; then
+            printf '   %s¿Cambiar a %s? [s/N]: %s' "$GRY" "$(basename "$target")" "$RST"
+            ask ans
+            case "${ans,,}" in s|si|sí|y|yes) ;; *) info "Sin cambios."; return 0 ;; esac
+        else
+            bad "Usa -f para cambiar de VPN sin preguntar."; return 1
+        fi
+        cmd_disconnect || return 1
+    elif ip a show tun0 &>/dev/null; then
+        ok "Ya hay tun0 levantado $GRY(VPN ajena a htb)$RST: $GRN$(tun_ip)$RST"
         return 0
     fi
-    step "Conectando VPN con $f $GRY(sudo)$RST"
-    as_root openvpn --config "$f" --daemon --writepid "$PID_FILE" --log /tmp/htb_vpn.log
-    local i
+
+    step "Conectando $BOLD$(basename "$target")$RST $GRY(sudo)$RST"
+    as_root openvpn --config "$target" --daemon --writepid "$PID_FILE" --log /tmp/htb_vpn.log
     for i in $(seq 1 15); do
         sleep 1
         if ip a show tun0 &>/dev/null; then
-            ok "VPN arriba: $GRN$BOLD$(ip -4 a show tun0 | awk '/inet/{print $2}')$RST"
+            ok "VPN arriba $GRY($(ovpn_kind "$(basename "$target") $(ovpn_slug "$target")"))$RST: $GRN$BOLD$(tun_ip)$RST"
             return 0
         fi
     done
@@ -494,14 +826,16 @@ cmd_connect() {
 }
 
 cmd_disconnect() {
-    local f="${1:-$VPN_FILE}" pid pids n i
+    local f="" pid pids n i cfg
+    if [ -n "${1:-}" ]; then f=$(resolve_ovpn "$1") || f="$1"; fi
     pid=$(htb_vpn_pid) || pid=""
     if [ -z "$pid" ]; then
-        pids=$(openvpn_pids_for_config "$f")
-        n=$(printf '%s\n' "$pids" | grep -c .)
+        if [ -n "$f" ]; then pids=$(openvpn_pids_for_config "$f")
+        else                 pids=$(openvpn_pids_in_vpndir); fi
+        n=$(printf '%s' "$pids" | grep -c .)
         if [ "$n" -eq 1 ]; then pid="$pids"
         elif [ "$n" -gt 1 ]; then
-            bad "Hay $n procesos openvpn usando $f. No mato ninguno por seguridad."
+            bad "Hay $n procesos openvpn de htb. Indica cual: htb disconnect <perfil>"
             pgrep -a -x openvpn >&2; return 1
         fi
     fi
@@ -515,7 +849,8 @@ cmd_disconnect() {
         warn "No hay VPN de htb conectada."
         return 0
     fi
-    step "Desconectando VPN de htb $GRY(pid $pid, sudo)$RST"
+    cfg=$(openvpn_config_of "$pid")
+    step "Desconectando $BOLD${cfg:+$(basename "$cfg")}$RST $GRY(pid $pid, sudo)$RST"
     as_root kill "$pid"
     for i in $(seq 1 15); do
         if [ ! -d "/proc/$pid" ]; then
@@ -531,11 +866,18 @@ cmd_disconnect() {
 }
 
 cmd_vpnstatus() {
-    local pid; pid=$(htb_vpn_pid) || pid=""
-    if ip a show tun0 &>/dev/null; then
-        printf '%s%s%s  VPN conectada  %s%s%s\n' "$GRN" "$I_NET" "$RST" \
-            "$GRN$BOLD" "$(ip -4 a show tun0 | awk '/inet/{print $2}')" "$RST"
-        [ -n "$pid" ] && printf '   %sopenvpn de htb: pid %s%s\n' "$GRY" "$pid" "$RST"
+    local pid cfg addr
+    pid=$(htb_vpn_pid) || pid=""
+    cfg=$(htb_vpn_config) || cfg=""
+    addr=$(tun_ip)
+    if [ -n "$addr" ]; then
+        printf '%s%s%s  VPN conectada  %s%s%s\n' "$GRN" "$I_NET" "$RST" "$GRN$BOLD" "$addr" "$RST"
+        if [ -n "$cfg" ]; then
+            printf '   %sperfil:%s %s%s%s %s(%s)%s\n' "$GRY" "$RST" "$WHT" "$(basename "$cfg")" "$RST" \
+                "$GRY" "$(ovpn_kind "$(basename "$cfg") $(ovpn_slug "$cfg")")" "$RST"
+        fi
+        if [ -n "$pid" ]; then printf '   %sopenvpn de htb: pid %s%s\n' "$GRY" "$pid" "$RST"
+        else                   printf '   %stun0 arriba, pero no lo lanzo htb%s\n' "$GRY" "$RST"; fi
     else
         printf '%s%s%s  Sin tun0 (VPN desconectada)  %s-> htb connect%s\n' \
             "$RED" "$I_NET" "$RST" "$GRY" "$RST"
@@ -650,10 +992,11 @@ usage() {
       "reset [nombre|id]\tResetea la maquina"
       "own <flag> [diff]\tSube flag a la maquina ACTIVA"
       "own <maq> <flag>\tSube flag a una maquina concreta"
-      "vpn [archivo]\tDescarga tu config VPN desde la API"
-      "connect [archivo]\tConecta la VPN y comprueba tun0"
+      "vpn [producto]\tDescarga el .ovpn (labs, sp, fortress, endgame...)"
+      "vpns\tLista tus perfiles VPN locales"
+      "connect [perfil]\tConecta la VPN (menu si no dices cual)"
       "disconnect\tDesconecta SOLO la VPN lanzada por htb"
-      "vpnstatus\tComprueba si tun0 esta arriba"
+      "vpnstatus\tQue VPN esta conectada y con que perfil"
       "icons\tMuestra el juego de iconos detectado"
       "font [Hack]\tInstala una Nerd Font (Arch/Debian/Fedora/macOS)"
       "version\tVersion de htb"
@@ -684,6 +1027,7 @@ case "$cmd" in
     reset)         cmd_reset "$@" ;;
     own|flag|submit) cmd_own "$@" ;;
     vpn)           cmd_vpn "$@" ;;
+    vpns|profiles) cmd_vpns "$@" ;;
     connect)       cmd_connect "$@" ;;
     disconnect|dc) cmd_disconnect "$@" ;;
     vpnstatus)     cmd_vpnstatus "$@" ;;
