@@ -319,7 +319,20 @@ $ htb vpn fortress
    Conectar: htb connect fortresses_eu-fort-1
 ```
 
-Alias aceptados: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `endgame`, `arena`/`release`, `season`, `prolab`/`pro`.
+Alias aceptados: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `endgame`, `arena`/`release`, `season`.
+
+**Pro Labs** van aparte (cada uno tiene su propia VPN). Se piden por nombre:
+
+```
+$ htb vpn prolab                 # sin nombre: lista los Pro Labs disponibles
+$ htb vpn prolab trusted         # descarga la VPN del Pro Lab Trusted
+🚀 Consultando servidores del Pro Lab 70 ...
+🚀 Descargando EU Mini Pro Lab 1 (id 710) ...
+✅ VPN guardada en ~/HTB/vpn/eu-mini-prolab-1.ovpn  (edge-eu-mini-prolab-1.hackthebox.eu)
+   Conectar: htb connect eu-mini-prolab-1
+```
+
+También acepta el id (`htb vpn prolab 70`) y `--pick`/`--tcp` como los demás.
 
 | Opción | Qué hace |
 |---|---|

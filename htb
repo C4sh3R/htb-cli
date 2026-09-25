@@ -12,7 +12,7 @@
 
 set -o pipefail
 
-HTB_VERSION="1.5.0"
+HTB_VERSION="1.5.1"
 
 # ================= Apariencia =================
 
@@ -463,7 +463,32 @@ vpn_product() {
         *) return 1 ;;
     esac
 }
-VPN_PRODUCTS=(labs starting_point fortresses endgames release_arena competitive prolab)
+VPN_PRODUCTS=(labs starting_point fortresses endgames release_arena competitive)
+
+# Los Pro Labs no se piden por ?product=, sino por id con su propio endpoint.
+# Resuelve un nombre o id de Pro Lab -> id numerico (lista si no encuentra).
+prolab_resolve() {
+    local q="$1" json id
+    json=$(api GET "/prolabs")
+    [ "$(echo "$json" | jq -r '.status // empty')" = "true" ] \
+        || { bad "No puedo listar los Pro Labs (¿token?)" >&2; return 1; }
+    if [ -z "$q" ]; then
+        bad "Indica el Pro Lab:  htb vpn prolab <nombre|id>" >&2
+        echo "$json" | jq -r '.data.labs[]? | "     \(.id)\t\(.name)"' | sort -n >&2
+        return 1
+    fi
+    if [[ "$q" =~ ^[0-9]+$ ]]; then printf '%s' "$q"; return 0; fi
+    id=$(echo "$json" | jq -r --arg q "$q" '.data.labs[]?
+            | select((.name|ascii_downcase)==($q|ascii_downcase)) | .id' | head -1)
+    [ -z "$id" ] && id=$(echo "$json" | jq -r --arg q "$q" '.data.labs[]?
+            | select(.name|ascii_downcase|contains($q|ascii_downcase)) | .id' | head -1)
+    if [ -z "$id" ]; then
+        bad "No encuentro ningun Pro Lab que encaje con '$q'" >&2
+        echo "$json" | jq -r '.data.labs[]? | "     \(.id)\t\(.name)"' | sort -n >&2
+        return 1
+    fi
+    printf '%s' "$id"
+}
 
 # Patron de nombre de fichero para cada producto (para 'htb connect fortress')
 vpn_product_pat() {
@@ -615,7 +640,7 @@ cmd_vpns() {
 
 # Descarga el .ovpn de un producto (labs, fortresses, ...) desde la API.
 cmd_vpn() {
-    local prod="" arg="" out="" tcp=0 pick=0 a
+    local prod="" arg="" arg2="" out="" tcp=0 pick=0 a
     while [ $# -gt 0 ]; do
         case "$1" in
             -o|--out)   out="$2"; shift 2 ;;
@@ -623,17 +648,28 @@ cmd_vpn() {
             -p|--pick)  pick=1; shift ;;
             -h|--help)  vpn_help; return 0 ;;
             -*)         die "Opcion desconocida: $1" ;;
-            *)          arg="$1"; shift ;;
+            *)          if [ -z "$arg" ]; then arg="$1"; else arg2="$arg2 $1"; fi; shift ;;
         esac
     done
+    arg2="${arg2# }"
 
     if [ -z "$arg" ]; then cmd_vpn_products; return 0; fi
-    prod=$(vpn_product "$arg") || die "Producto desconocido: $arg  (${VPN_PRODUCTS[*]})"
+    prod=$(vpn_product "$arg") || die "Producto desconocido: $arg  (${VPN_PRODUCTS[*]}, prolab)"
 
-    step "Consultando servidores de $BOLD$prod$RST ..."
-    local json; json=$(api GET "/connections/servers?product=$prod")
-    [ "$(echo "$json" | jq -r '.status // empty')" = "true" ] \
-        || die "La API no devuelve servidores para '$prod' (¿no tienes acceso a ese producto?)"
+    local json
+    if [ "$prod" = prolab ]; then
+        # Los Pro Labs van por id con endpoint propio: /connections/servers/prolab/<id>
+        local labid; labid=$(prolab_resolve "$arg2") || return 1
+        step "Consultando servidores del Pro Lab $BOLD$labid$RST ..."
+        json=$(api GET "/connections/servers/prolab/$labid")
+        [ "$(echo "$json" | jq -r '.status // empty')" = "true" ] \
+            || die "La API no da servidores para el Pro Lab '$arg2' (¿no tienes acceso a ese lab?)"
+    else
+        step "Consultando servidores de $BOLD$prod$RST ..."
+        json=$(api GET "/connections/servers?product=$prod")
+        [ "$(echo "$json" | jq -r '.status // empty')" = "true" ] \
+            || die "La API no devuelve servidores para '$prod' (¿no tienes acceso a ese producto?)"
+    fi
 
     local sid sname
     if [ "$pick" = 1 ]; then
@@ -708,13 +744,16 @@ cmd_vpn_products() {
     done
     printf '\n  %sDescargar:%s htb vpn fortress      %s(--pick para elegir servidor)%s\n' \
         "$GRY" "$RST" "$GRY" "$RST"
-    printf '  %sAlias:%s labs, sp, fortress, endgame, arena, season, prolab\n\n' "$GRY" "$RST"
+    printf '  %sPro Labs:%s  htb vpn prolab <nombre>  %s(htb vpn prolab  lista los disponibles)%s\n' \
+        "$GRY" "$RST" "$GRY" "$RST"
+    printf '  %sAlias:%s labs, sp, fortress, endgame, arena, season\n\n' "$GRY" "$RST"
 }
 
 vpn_help() {
     printf '\n  %shtb vpn [producto] [opciones]%s\n\n' "$BOLD$WHT" "$RST"
     printf '    %ssin producto%s   lista los productos y tu servidor asignado\n' "$GRY" "$RST"
-    printf '    %sproducto%s       labs | sp | fortress | endgame | arena | season | prolab\n' "$GRY" "$RST"
+    printf '    %sproducto%s       labs | sp | fortress | endgame | arena | season\n' "$GRY" "$RST"
+    printf '    %sprolab <nom>%s   VPN de un Pro Lab (sin nombre: lista los que hay)\n' "$GRY" "$RST"
     printf '    %s-p, --pick%s     elegir servidor concreto en vez del asignado\n' "$GRY" "$RST"
     printf '    %s--tcp%s          bajar la variante TCP\n' "$GRY" "$RST"
     printf '    %s-o <ruta>%s      guardar en una ruta concreta\n\n' "$GRY" "$RST"
