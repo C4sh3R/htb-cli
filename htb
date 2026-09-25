@@ -12,7 +12,7 @@
 
 set -o pipefail
 
-HTB_VERSION="1.5.1"
+HTB_VERSION="1.5.2"
 
 # ================= Apariencia =================
 
@@ -456,14 +456,13 @@ vpn_product() {
         labs|lab|machines|machine|vip|maquinas|maquina) printf 'labs' ;;
         sp|start|starting|startingpoint|starting_point) printf 'starting_point' ;;
         fort|fortress|fortresses|fortaleza|fortalezas)  printf 'fortresses' ;;
-        endgame|endgames|eg)                            printf 'endgames' ;;
         arena|release|release_arena|releasearena)       printf 'release_arena' ;;
         season|competitive|comp)                        printf 'competitive' ;;
         pro|prolab|prolabs|pro_lab|pl)                   printf 'prolab' ;;
         *) return 1 ;;
     esac
 }
-VPN_PRODUCTS=(labs starting_point fortresses endgames release_arena competitive)
+VPN_PRODUCTS=(labs starting_point fortresses release_arena competitive)
 
 # Los Pro Labs no se piden por ?product=, sino por id con su propio endpoint.
 # Resuelve un nombre o id de Pro Lab -> id numerico (lista si no encuentra).
@@ -496,7 +495,6 @@ vpn_product_pat() {
         labs)           printf 'lab|machine|vip|dedivip|htb' ;;
         starting_point) printf 'start|_sp|^sp' ;;
         fortresses)     printf 'fort' ;;
-        endgames)       printf 'endgame|_eg' ;;
         release_arena)  printf 'arena|release' ;;
         competitive)    printf 'competitive|season' ;;
         prolab)         printf 'prolab' ;;
@@ -746,13 +744,13 @@ cmd_vpn_products() {
         "$GRY" "$RST" "$GRY" "$RST"
     printf '  %sPro Labs:%s  htb vpn prolab <nombre>  %s(htb vpn prolab  lista los disponibles)%s\n' \
         "$GRY" "$RST" "$GRY" "$RST"
-    printf '  %sAlias:%s labs, sp, fortress, endgame, arena, season\n\n' "$GRY" "$RST"
+    printf '  %sAlias:%s labs, sp, fortress, arena, season\n\n' "$GRY" "$RST"
 }
 
 vpn_help() {
     printf '\n  %shtb vpn [producto] [opciones]%s\n\n' "$BOLD$WHT" "$RST"
     printf '    %ssin producto%s   lista los productos y tu servidor asignado\n' "$GRY" "$RST"
-    printf '    %sproducto%s       labs | sp | fortress | endgame | arena | season\n' "$GRY" "$RST"
+    printf '    %sproducto%s       labs | sp | fortress | arena | season\n' "$GRY" "$RST"
     printf '    %sprolab <nom>%s   VPN de un Pro Lab (sin nombre: lista los que hay)\n' "$GRY" "$RST"
     printf '    %s-p, --pick%s     elegir servidor concreto en vez del asignado\n' "$GRY" "$RST"
     printf '    %s--tcp%s          bajar la variante TCP\n' "$GRY" "$RST"
@@ -1034,7 +1032,7 @@ usage() {
       "reset [nombre|id]\tResetea la maquina"
       "own <flag> [diff]\tSube flag a la maquina ACTIVA"
       "own <maq> <flag>\tSube flag a una maquina concreta"
-      "vpn [producto]\tDescarga el .ovpn (labs, sp, fortress, endgame...)"
+      "vpn [producto]\tDescarga el .ovpn (labs, sp, fortress, arena, prolab...)"
       "vpns\tLista tus perfiles VPN locales"
       "connect [perfil]\tConecta la VPN (menu si no dices cual)"
       "disconnect\tDesconecta SOLO la VPN lanzada por htb"

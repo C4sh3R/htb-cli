@@ -306,7 +306,7 @@ $ htb vpn
   labs                EU Machines VIP+ 5        EU
   starting_point      EU StartingPoint 1        EU
   fortresses          EU Fortress 1             EU
-  endgames            sin acceso
+  release_arena       sin acceso
 ```
 
 Con un producto, lo descarga a tu carpeta de VPNs:
@@ -319,7 +319,7 @@ $ htb vpn fortress
    Conectar: htb connect fortresses_eu-fort-1
 ```
 
-Alias aceptados: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `endgame`, `arena`/`release`, `season`.
+Alias aceptados: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `arena`/`release`, `season`.
 
 **Pro Labs** van aparte (cada uno tiene su propia VPN). Se piden por nombre:
 
