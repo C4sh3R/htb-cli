@@ -12,7 +12,7 @@
 
 set -o pipefail
 
-HTB_VERSION="1.4.0"
+HTB_VERSION="1.5.0"
 
 # ================= Apariencia =================
 
@@ -459,10 +459,11 @@ vpn_product() {
         endgame|endgames|eg)                            printf 'endgames' ;;
         arena|release|release_arena|releasearena)       printf 'release_arena' ;;
         season|competitive|comp)                        printf 'competitive' ;;
+        pro|prolab|prolabs|pro_lab|pl)                   printf 'prolab' ;;
         *) return 1 ;;
     esac
 }
-VPN_PRODUCTS=(labs starting_point fortresses endgames release_arena competitive)
+VPN_PRODUCTS=(labs starting_point fortresses endgames release_arena competitive prolab)
 
 # Patron de nombre de fichero para cada producto (para 'htb connect fortress')
 vpn_product_pat() {
@@ -473,6 +474,7 @@ vpn_product_pat() {
         endgames)       printf 'endgame|_eg' ;;
         release_arena)  printf 'arena|release' ;;
         competitive)    printf 'competitive|season' ;;
+        prolab)         printf 'prolab' ;;
         *)              return 1 ;;
     esac
 }
@@ -485,6 +487,7 @@ ovpn_slug()   { local h; h=$(ovpn_remote "$1"); h="${h%.hackthebox.*}"; printf '
 # Etiqueta legible a partir del nombre/slug del fichero
 ovpn_kind() {
     case "${1,,}" in
+        *prolab*)          printf 'Pro Lab' ;;
         *fort*)            printf 'Fortress' ;;
         *start*|*-sp-*)    printf 'Starting Point' ;;
         *endgame*|*-eg-*)  printf 'Endgame' ;;
@@ -705,13 +708,13 @@ cmd_vpn_products() {
     done
     printf '\n  %sDescargar:%s htb vpn fortress      %s(--pick para elegir servidor)%s\n' \
         "$GRY" "$RST" "$GRY" "$RST"
-    printf '  %sAlias:%s labs, sp, fortress, endgame, arena, season\n\n' "$GRY" "$RST"
+    printf '  %sAlias:%s labs, sp, fortress, endgame, arena, season, prolab\n\n' "$GRY" "$RST"
 }
 
 vpn_help() {
     printf '\n  %shtb vpn [producto] [opciones]%s\n\n' "$BOLD$WHT" "$RST"
     printf '    %ssin producto%s   lista los productos y tu servidor asignado\n' "$GRY" "$RST"
-    printf '    %sproducto%s       labs | sp | fortress | endgame | arena | season\n' "$GRY" "$RST"
+    printf '    %sproducto%s       labs | sp | fortress | endgame | arena | season | prolab\n' "$GRY" "$RST"
     printf '    %s-p, --pick%s     elegir servidor concreto en vez del asignado\n' "$GRY" "$RST"
     printf '    %s--tcp%s          bajar la variante TCP\n' "$GRY" "$RST"
     printf '    %s-o <ruta>%s      guardar en una ruta concreta\n\n' "$GRY" "$RST"

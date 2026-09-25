@@ -65,7 +65,7 @@ export HTB_TOKEN="eyJ0eXAiOiJKV1..."
 
 ### Carpeta de VPNs
 
-HTB da un `.ovpn` distinto por producto (Labs, Fortress, Starting Point, Release Arena…). `htb` los guarda todos juntos en una carpeta y tú eliges cuál conectar.
+HTB da un `.ovpn` distinto por producto (Labs, Fortress, Starting Point, Release Arena, Pro Labs…). `htb` los guarda todos juntos en una carpeta y tú eliges cuál conectar.
 
 La carpeta se autodetecta entre `~/Desktop/c4sh3r/HTB/vpn`, `~/HTB/vpn` y `~/.config/htb/vpn` (la primera que exista). Para fijar la tuya:
 
@@ -319,7 +319,7 @@ $ htb vpn fortress
    Conectar: htb connect fortresses_eu-fort-1
 ```
 
-Alias aceptados: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `endgame`, `arena`/`release`, `season`.
+Alias aceptados: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `endgame`, `arena`/`release`, `season`, `prolab`/`pro`.
 
 | Opción | Qué hace |
 |---|---|
