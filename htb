@@ -1,25 +1,43 @@
 #!/usr/bin/env bash
 #
-# htb - cliente de terminal para HackTheBox (API v4 actual)
-# Pensado para first blood: spawn rapido, IP al instante y subida de flags.
+#           .+#%%#+.
+#       :+**=      =**+:
+#    =%@*-            -*@%=
+#   #@@@*-            -*@@@#  ██╗  ██╗████████╗██████╗
+#   #*- -#%%*.    .*%%#- -*#  ██║  ██║╚══██╔══╝██╔══██╗
+#   #+.     :*####*:     .+#  ███████║   ██║   ██████╔╝
+#   #+.       :@@:       .+#  ██╔══██║   ██║   ██╔══██╗
+#   #+.       :@@:       .+#  ██║  ██║   ██║   ██████╔╝
+#   ##+       :@@:       +##  ╚═╝  ╚═╝   ╚═╝   ╚═════╝
+#     -+*+:   :@@:   :+*+-
+#         =#%#%@@%#%#=
+#            .=**=.
 #
-# Token: se lee de $HTB_TOKEN o, si no, de ~/.config/htb/token
-# Requisitos: curl, jq, python3 (solo para algun parseo puntual)
+#	Author	    -	C4sh$R
+#   Modified    -   Ch4rum
+#	Repo	    -	https://github.com/C4sh3R/htb-cli
 #
-# Apariencia:
-#   HTB_ICONS=nerd|emoji|ascii   fuerza el juego de iconos (por defecto: autodeteccion)
-#   NO_COLOR=1                   desactiva color
+#   htb - HackTheBox terminal client (current API v4)
+#   Designed for first blood: fast spawning, instant IP retrieval, and flag submission.
+#
+#   Token: read from $HTB_TOKEN or, alternatively, from ~/.config/htb/token
+#   Requirements: curl, jq, python3 (only for occasional parsing)
+#
+#   Appearance:
+#       HTB_ICONS=nerd|emoji|ascii   force the icon set (auto-detected by default)
+#       NO_COLOR=1                  disable colors
 
 set -o pipefail
 
-HTB_VERSION="1.5.2"
+HTB_VERSION="1.5.3"
 
-# ================= Apariencia =================
+# ================= Appearance =================
+#
+# Auto-detect the icon set to ensure proper rendering in any terminal:
+#   nerd  -> a Nerd Font is installed
+#   emoji -> UTF-8 terminal without a Nerd Font
+#   ascii -> no UTF-8 support, or output redirected to a file/pipe
 
-# Autodeteccion del juego de iconos para que se vea bien en cualquier terminal:
-#   nerd  -> hay una Nerd Font instalada
-#   emoji -> terminal UTF-8 sin Nerd Font
-#   ascii -> sin UTF-8, o salida redirigida a fichero/pipe
 if [ -t 1 ]; then IS_TTY=1; else IS_TTY=0; fi
 
 detect_icons() {
@@ -48,7 +66,7 @@ if [ "$IS_TTY" = 1 ] && [ -z "$NO_COLOR" ]; then
 else
     RST= BOLD= DIM= RED= GRN= YEL= BLU= MAG= CYN= ORG= GRY= WHT=
 fi
-# alias de compatibilidad con el codigo antiguo
+# Compatibility alias for the legacy code
 g="$GRN$BOLD"; r="$RED$BOLD"; b="$BLU$BOLD"; y="$YEL$BOLD"; c="$CYN$BOLD"; e="$RST"
 
 case "$ICONSET" in
@@ -74,7 +92,35 @@ case "$ICONSET" in
     I_INFO=$'' I_LOCK=$'' I_STAR=$'' I_TGT=$'' ;;
 esac
 
-# ---- Ancho visible real (salta ANSI, cuenta emoji como 2 columnas) ----
+_banner() {
+    # Modern gradient palette (true-color). Falls back to empty strings w/ --no-color.
+    local g1 g2 g3 g4 g5 g6 b1 b2 acc box
+    text="$1"
+    if [[ -n "$RST" ]]; then
+        g1=$'\e[38;2;0;255;200m';   g2=$'\e[38;2;0;225;235m'   # teal → cyan
+        g3=$'\e[38;2;60;180;255m';  g4=$'\e[38;2;130;120;255m' # blue → indigo
+        g5=$'\e[38;2;190;90;255m';  g6=$'\e[38;2;255;70;200m'  # violet → magenta
+        b1=$'\e[38;2;255;60;120m';  b2=$'\e[38;2;255;180;60m'  # pink / amber accents
+        acc=$'\e[38;2;0;255;160m';  box=$'\e[38;2;90;100;120m'
+    fi
+cat <<EOF
+
+${GRN}${BOLD}          .+#%%#+.
+${GRN}${BOLD}      :+**=      =**+:
+${GRN}${BOLD}   =%@*-            -*@%=
+${GRN}${BOLD}  #@@@*-            -*@@@#  ${g1}${BOLD}██╗  ██╗${g4}████████╗██████╗${RST}
+${GRN}${BOLD}  #*- -#%%*.    .*%%#- -*#  ${g1}${BOLD}██║  ██║${g4}╚══██╔══╝██╔══██╗${RST}
+${GRN}${BOLD}  #+.     :*####*:     .+#  ${g2}${BOLD}███████║${g5}   ██║   ██████╔╝${RST}
+${GRN}${BOLD}  #+.       :@@:       .+#  ${g2}${BOLD}██╔══██║${g5}   ██║   ██╔══██╗${RST}
+${GRN}${BOLD}  #+.       :@@:       .+#  ${g3}${BOLD}██║  ██║${g6}   ██║   ██████╔╝${RST}
+${GRN}${BOLD}  ##+       :@@:       +##  ${g3}${BOLD}╚═╝  ╚═╝${g6}   ╚═╝   ╚═════╝${RST}
+${GRN}${BOLD}    -+*+:   :@@:   :+*+-
+${GRN}${BOLD}        =#%#%@@%#%#=
+${GRN}${BOLD}           .=**=.
+EOF
+}
+
+# ---- Actual visible width (skips ANSI codes, counts emoji as 2 columns) ----
 _vlen() {
     local s="$1"
     local n=${#s} i=0 ch cp w=0 esc=0
@@ -101,8 +147,8 @@ _vlen() {
     done
     printf '%s' "$w"
 }
-# celda: imprime <texto> + relleno hasta <ancho> (el relleno lo genera printf,
-# asi no lo puede comer una sustitucion de comandos)
+# cell: prints <text> + padding up to <width> (printf generates the padding,
+# so command substitution cannot strip it)
 cell() { local n; n=$(( $2 - $(_vlen "$1") )); (( n < 0 )) && n=0; printf '%s%*s' "$1" "$n" ''; }
 pad()  { local t="$1" w="$2" al="${3:-left}" l n sp
          l=$(_vlen "$t"); n=$(( w - l )); (( n < 0 )) && n=0
@@ -143,10 +189,11 @@ field()     { printf '   %s%s%s  %s\n' "$GRY" "$(pad "$1" 12)" "$RST" "$2"; }
 # ================= Config =================
 
 API="https://labs.hackthebox.com/api/v4"
-API_V5="https://labs.hackthebox.com/api/v5"   # /machine/own migro aqui (v4 retirado)
+API_V5="https://labs.hackthebox.com/api/v5"   # /machine/own was moved here (removed from v4)
 TOKEN_FILE="${HTB_TOKEN_FILE:-$HOME/.config/htb/token}"
 UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
-# Carpeta con tus .ovpn (labs, fortress, starting point...). Se autodetecta.
+
+# Directory containing your .ovpn files (labs, fortress, starting point, etc.). Auto-detected.
 VPN_DIR="${HTB_VPN_DIR:-}"
 if [ -z "$VPN_DIR" ]; then
     for _d in "$HOME/Desktop/c4sh3r/HTB/vpn" "$HOME/HTB/vpn" "$HOME/.config/htb/vpn"; do
@@ -154,7 +201,8 @@ if [ -z "$VPN_DIR" ]; then
     done
     VPN_DIR="${VPN_DIR:-$HOME/.config/htb/vpn}"
 fi
-# Opcional: fuerza SIEMPRE este .ovpn y salta el selector de perfiles
+
+# Optional: always use this .ovpn file and skip the profile selector
 VPN_FILE="${HTB_VPN_FILE:-}"
 PID_FILE="${HTB_VPN_PID_FILE:-/run/htb-openvpn.pid}"
 
@@ -165,12 +213,12 @@ case "${1:-}" in
     version|--version|-V|-h|--help|help|icons|font|setup-font|"") ;;
     *)
         if [ -z "$HTB_TOKEN" ]; then
-            bad "No hay token. Ponlo en \$HTB_TOKEN o en $TOKEN_FILE"
+            bad "No token found. Set \$HTB_TOKEN or store it in $TOKEN_FILE"
             exit 1
         fi ;;
 esac
 
-# ================= Helpers HTTP =================
+# ================= HTTP Helpers =================
 api() {
     local method="$1" path="$2" body="$3"
     if [ -n "$body" ]; then
@@ -216,31 +264,32 @@ resolve_id() {
 
 active_id() { api GET "/machine/active" | jq -r '.info.id // empty'; }
 
-# ================= Comandos =================
+# ================= Commands =================
 
 cmd_whoami() {
     local out; out=$(api GET "/user/info")
     local name id vip srv
     name=$(echo "$out" | jq -r '.info.name // empty')
-    [ -z "$name" ] && die "Token invalido o API no responde"
+    [ -z "$name" ] && die "Invalid token or API is not responding"
     id=$(echo "$out"  | jq -r '.info.id')
     vip=$(echo "$out" | jq -r '.info.canAccessVIP')
     srv=$(echo "$out" | jq -r '.info.server_id // "n/a"')
-    title "$I_USER  Sesion HackTheBox"
-    field "Usuario" "$BOLD$WHT$name$RST $GRY(id $id)$RST"
-    if [ "$vip" = "true" ]; then field "VIP" "$(printf '%s%s si%s' "$GRN" "$I_STAR" "$RST")"
+    title "$I_USER  HackTheBox Session"
+    field "User" "$BOLD$WHT$name$RST $GRY(id $id)$RST"
+    if [ "$vip" = "true" ]; then field "VIP" "$(printf '%s%s yes%s' "$GRN" "$I_STAR" "$RST")"
     else field "VIP" "$(printf '%s%s no%s' "$GRY" "$I_NO" "$RST")"; fi
     field "Server" "$srv"
     echo
 }
 
-# Cabecera de tabla de maquinas
+# Machine table header
 _mach_header() {
     printf '  %s%s%s%s%s%s%s%s\n' \
-        "$BOLD$GRY" "$(pad "ID" 7)" "$(pad "OS" 5)" "$(pad "MAQUINA" 22)" \
-        "$(pad "DIFICULTAD" 14)" "$(pad "RELEASE" 13)" "$(pad "USER" 6)$(pad "ROOT" 6)" "$RST"
+        "$BOLD$GRY" "$(pad "ID" 7)" "$(pad "OS" 5)" "$(pad "MACHINE" 22)" \
+        "$(pad "DIFFICULTY" 14)" "$(pad "RELEASE" 13)" "$(pad "USER" 6)$(pad "ROOT" 6)" "$RST"
     printf '  %s%s%s\n' "$GRY" "$(line 73)" "$RST"
 }
+
 _mach_row() { # id os name diff release userown rootown
     printf '  %s%s%s%s%s%s%s\n' \
         "$(pad "$WHT$1$RST" 7)" "$(pad "$(os_icon "$2")" 5)" \
@@ -250,12 +299,12 @@ _mach_row() { # id os name diff release userown rootown
 
 cmd_list() {
     local n="${1:-15}" rows
-    title "$I_BOX  Ultimas $n maquinas"
+    title "$I_BOX  Latest $n Machines"
     rows=$(api GET "/machine/paginated?per_page=$n" \
         | jq -r '.data | sort_by(.release) | reverse | .[]
             | [.id,.os,.name,.difficultyText,(.release[0:10]),
                (.authUserInUserOwns|tostring),(.authUserInRootOwns|tostring)] | @tsv')
-    [ -z "$rows" ] && { warn "Sin datos (revisa el token)"; return 1; }
+    [ -z "$rows" ] && { warn "No data available (check your token)"; return 1; }
     _mach_header
     local id os name diff rel u rt
     while IFS=$'\t' read -r id os name diff rel u rt; do
@@ -266,18 +315,18 @@ cmd_list() {
 
 cmd_season() {
     local raw rows
-    title "$I_TGT  Maquinas de la season activa"
+    title "$I_TGT  Active Season Machines"
     raw=$(api GET "/season/machines")
     rows=$(echo "$raw" | jq -r '.data[]? | [.id,.os,.name,.difficulty_text,(.release_time[0:10]),
                  (.is_released|tostring),(.is_user_blood|tostring),(.is_root_blood|tostring)] | @tsv')
     if [ -z "$rows" ]; then
         local why; why=$(echo "$raw" | jq -r '.message // empty')
-        warn "No hay season activa${why:+ $GRY(API: $why)$RST}"
+        warn "No active season${why:+ $GRY(API: $why)$RST}"
         return 1
     fi
     printf '  %s%s%s%s%s%s%s%s\n' "$BOLD$GRY" "$(pad "ID" 7)" "$(pad "OS" 5)" \
-        "$(pad "MAQUINA" 22)" "$(pad "DIFICULTAD" 14)" "$(pad "RELEASE" 13)" \
-        "$(pad "ESTADO" 9)$(pad "BLOOD" 8)" "$RST"
+        "$(pad "MACHINE" 22)" "$(pad "DIFFICULTY" 14)" "$(pad "RELEASE" 13)" \
+        "$(pad "STATUS" 9)$(pad "BLOOD" 8)" "$RST"
     printf '  %s%s%s\n' "$GRY" "$(line 78)" "$RST"
     local id os name diff rel isrel ub rb
     while IFS=$'\t' read -r id os name diff rel isrel ub rb; do
@@ -287,7 +336,7 @@ cmd_season() {
             "$(pad "$GRY$rel$RST" 13)" "$(pad "$(rel_fmt "$isrel")" 9)" \
             "$(pad "$(blood_fmt "$ub")$(blood_fmt "$rb")" 8)"
     done <<< "$rows"
-    printf '  %s%s%s = user blood   %s%s%s = root blood (2do)%s\n\n' \
+    printf '  %s%s%s = user blood   %s%s%s = root blood (2nd)%s\n\n' \
         "$RED" "$I_BLOOD" "$GRY" "$RED" "$I_BLOOD" "$GRY" "$RST"
     echo
 }
@@ -296,64 +345,64 @@ cmd_latest() {
     local out; out=$(api GET "/machine/paginated?per_page=20" \
         | jq -r '.data | sort_by(.release) | reverse | .[0]
             | [.id,.os,.name,.difficultyText,.release,(.active|tostring)] | @tsv')
-    [ -z "$out" ] && die "No se pudo consultar la API"
+    [ -z "$out" ] && die "Failed to query the API"
     local id os name diff rel act
     IFS=$'\t' read -r id os name diff rel act <<< "$out"
-    title "$I_UP  Release mas reciente"
-    field "Maquina"    "$(os_icon "$os")  $BOLD$WHT$name$RST $GRY(id $id)$RST"
-    field "Sistema"    "$os"
-    field "Dificultad" "$(diff_fmt "$diff")"
+    title "$I_UP  Latest Release"
+    field "Machine"    "$(os_icon "$os")  $BOLD$WHT$name$RST $GRY(id $id)$RST"
+    field "OS"         "$os"
+    field "Difficulty" "$(diff_fmt "$diff")"
     field "Release"    "$GRY${rel:0:19}$RST"
-    if [ "$act" = "true" ]; then field "Estado" "$(printf '%s%s activa%s' "$GRN" "$I_DOT" "$RST")"
-    else field "Estado" "$(printf '%s%s inactiva%s' "$GRY" "$I_NO" "$RST")"; fi
+    if [ "$act" = "true" ]; then field "Status" "$(printf '%s%s active%s' "$GRN" "$I_DOT" "$RST")"
+    else field "Status" "$(printf '%s%s inactive%s' "$GRY" "$I_NO" "$RST")"; fi
     echo
 }
 
-# ID del usuario autenticado (para saber si una blood es nuestra)
+# Authenticated user's ID (to determine whether a blood belongs to you)
 self_id() {
     [ -n "$SELF_ID" ] || SELF_ID=$(api GET "/user/info" | jq -r '.info.id // empty')
     printf '%s' "$SELF_ID"
 }
 
-# Pinta una blood: nombre, tiempo y marca si es nuestra
+# Display a blood: name, time, and whether it belongs to you
 blood_line() {
     local who="$1" wid="$2" tdiff="$3" me
     if [ -z "$who" ] || [ "$who" = "null" ] || [ "$who" = "-" ]; then
-        printf '%ssin blood registrada%s' "$GRY" "$RST"; return
+        printf '%sno blood claimed%s' "$GRY" "$RST"; return
     fi
     me=$(self_id)
     if [ -n "$me" ] && [ "$wid" = "$me" ]; then
-        printf '%s%s %s  %s%s  <- TUYA%s' "$RED$BOLD" "$I_BLOOD" "$who" "$tdiff" "$YEL" "$RST"
+        printf '%s%s %s  %s%s  <- YOURS%s' "$RED$BOLD" "$I_BLOOD" "$who" "$tdiff" "$YEL" "$RST"
     else
         printf '%s%s%s %s  %s%s%s' "$RED" "$I_BLOOD" "$RST" "$who" "$GRY" "$tdiff" "$RST"
     fi
 }
 
 cmd_info() {
-    local id; id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
+    local id; id=$(resolve_id "$1") || die "Machine '$1' not found"
     local out; out=$(api GET "/machine/profile/$id" \
         | jq -r '.info | [.id,.os,.name,.difficultyText,(.ip//"-"),(.points//0),.release,
                  (.active|tostring),(.authUserInUserOwns|tostring),(.authUserInRootOwns|tostring),
                  (.userBlood.user.name//"-"),(.userBlood.user.id//"-"),(.userBlood.blood_difference//"-"),
                  (.rootBlood.user.name//"-"),(.rootBlood.user.id//"-"),(.rootBlood.blood_difference//"-"),
                  (.authUserFirstUserTime//"-"),(.authUserFirstRootTime//"-"),(.ownRank//"-")] | @tsv')
-    [ -z "$out" ] && die "No se pudo obtener el perfil de la maquina"
+    [ -z "$out" ] && die "Failed to retrieve the machine profile"
     local mid os name diff ip pts rel act uo ro ubn ubi ubd rbn rbi rbd fut frt rank
     IFS=$'\t' read -r mid os name diff ip pts rel act uo ro ubn ubi ubd rbn rbi rbd fut frt rank <<< "$out"
     title "$(os_icon "$os")  $name"
     field "ID"         "$WHT$mid$RST"
-    field "Sistema"    "$(os_icon "$os")  $os"
-    field "Dificultad" "$(diff_fmt "$diff")"
-    field "Puntos"     "$pts"
-    field "IP"         "$( [ "$ip" != "-" ] && [ "$ip" != "null" ] && printf '%s%s%s' "$GRN$BOLD" "$ip" "$RST" || printf '%s(no spawneada)%s' "$GRY" "$RST")"
+    field "OS"         "$(os_icon "$os")  $os"
+    field "Difficulty" "$(diff_fmt "$diff")"
+    field "Points"     "$pts"
+    field "IP"         "$( [ "$ip" != "-" ] && [ "$ip" != "null" ] && printf '%s%s%s' "$GRN$BOLD" "$ip" "$RST" || printf '%s(not spawned)%s' "$GRY" "$RST")"
     field "Release"    "$GRY${rel:0:10}$RST"
-    field "Activa"     "$( [ "$act" = true ] && printf '%s%s si%s' "$GRN" "$I_DOT" "$RST" || printf '%s%s no%s' "$GRY" "$I_NO" "$RST")"
+    field "Active"     "$( [ "$act" = true ] && printf '%s%s yes%s' "$GRN" "$I_DOT" "$RST" || printf '%s%s no%s' "$GRY" "$I_NO" "$RST")"
     printf '\n'
-    field "User own"   "$(own_fmt "$uo")$( [ "$fut" != "-" ] && printf '  %sen %s%s' "$GRY" "$fut" "$RST")"
-    field "Root own"   "$(own_fmt "$ro")$( [ "$frt" != "-" ] && printf '  %sen %s%s' "$GRY" "$frt" "$RST")"
-    [ "$rank" != "-" ] && field "Tu rank" "#$rank"
+    field "User own"   "$(own_fmt "$uo")$( [ "$fut" != "-" ] && printf '  %sat %s%s' "$GRY" "$fut" "$RST")"
+    field "Root own"   "$(own_fmt "$ro")$( [ "$frt" != "-" ] && printf '  %sat %s%s' "$GRY" "$frt" "$RST")"
+    [ "$rank" != "-" ] && field "Your rank" "#$rank"
     printf '\n'
-    # resolver el ID propio aqui (dentro de $(...) la cache se perderia en el subshell)
+    # Resolve your own ID here (inside $(...), the cache would be lost in the subshell)
     if [ "$ubn" != "-" ] || [ "$rbn" != "-" ]; then self_id >/dev/null; fi
     field "User blood" "$(blood_line "$ubn" "$ubi" "$ubd")"
     field "Root blood" "$(blood_line "$rbn" "$rbi" "$rbd")"
@@ -363,24 +412,24 @@ cmd_info() {
 cmd_active() {
     local out; out=$(api GET "/machine/active")
     if [ "$(echo "$out" | jq -r '.info')" = "null" ]; then
-        warn "No tienes ninguna maquina spawneada."
-        printf '   %sArranca una con:%s htb spawn <nombre>\n' "$GRY" "$RST"
+        warn "You don't have any machine spawned."
+        printf '   %sStart one with:%s htb spawn <name>\n' "$GRY" "$RST"
         return 0
     fi
     local name id ip exp
     name=$(echo "$out" | jq -r '.info.name'); id=$(echo "$out" | jq -r '.info.id')
     ip=$(echo "$out"   | jq -r '.info.ip // "n/a"'); exp=$(echo "$out" | jq -r '.info.expires_at // "n/a"')
-    title "$I_TGT  Maquina activa"
-    field "Maquina" "$BOLD$WHT$name$RST $GRY(id $id)$RST"
+    title "$I_TGT  Active Machine"
+    field "Machine" "$BOLD$WHT$name$RST $GRY(id $id)$RST"
     field "IP"      "$GRN$BOLD$ip$RST"
-    field "Expira"  "$GRY$exp$RST"
+    field "Expires" "$GRY$exp$RST"
     echo
 }
 
 cmd_spawn() {
-    [ -z "$1" ] && die "Uso: htb spawn <nombre|id>"
-    local id; id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
-    step "Spawneando maquina id $id ..."
+    [ -z "$1" ] && die "Usage: htb spawn <name|id>"
+    local id; id=$(resolve_id "$1") || die "Machine '$1' not found"
+    step "Spawning machine ID $id ..."
     local out; out=$(api POST "/vm/spawn" "{\"machine_id\": $id}")
     ok "$(echo "$out" | jq -r '.message // .error // .')"
     cmd_ip "$id"
@@ -388,16 +437,16 @@ cmd_spawn() {
 
 cmd_stop() {
     local id; id="${1:-$(active_id)}"
-    [ -z "$id" ] && die "No hay maquina activa que parar"
-    [[ "$id" =~ ^[0-9]+$ ]] || id=$(resolve_id "$id") || die "No encuentro '$1'"
+    [ -z "$id" ] && die "No active machine to stop"
+    [[ "$id" =~ ^[0-9]+$ ]] || id=$(resolve_id "$id") || die "Machine '$1' not found"
     local out; out=$(api POST "/vm/terminate" "{\"machine_id\": $id}")
     ok "$(echo "$out" | jq -r '.message // .')"
 }
 
 cmd_reset() {
     local id; id="${1:-$(active_id)}"
-    [ -z "$id" ] && die "No hay maquina activa que resetear"
-    [[ "$id" =~ ^[0-9]+$ ]] || id=$(resolve_id "$id") || die "No encuentro '$1'"
+    [ -z "$id" ] && die "No active machine to reset"
+    [[ "$id" =~ ^[0-9]+$ ]] || id=$(resolve_id "$id") || die "Machine '$1' not found"
     local out; out=$(api POST "/vm/reset" "{\"machine_id\": $id}")
     ok "$(echo "$out" | jq -r '.message // .')"
 }
@@ -413,33 +462,64 @@ cmd_ip() {
             [ -t 1 ] && printf '\r\e[K'
             ok "IP: $GRN$BOLD$ip$RST"
             if echo "$ip" | tr -d '\n' | xclip -selection clipboard 2>/dev/null; then
-                printf '   %scopiada al portapapeles%s\n' "$GRY" "$RST"
+                printf '   %scopied to clipboard%s\n' "$GRY" "$RST"
             fi
             return 0
         fi
         if [ -t 1 ]; then
             fr="${spin:$(( (i-1) % ${#spin} )):1}"
-            printf '\r%s%s%s esperando IP... %ss ' "$CYN" "$fr" "$RST" "$((i*2))"
+            printf '\r%s%s%s waiting for IP... %ss ' "$CYN" "$fr" "$RST" "$((i*2))"
         fi
         sleep 2
     done
     [ -t 1 ] && printf '\r\e[K'
-    bad "La maquina aun no tiene IP (sigue arrancando). Reintenta: htb ip"
+    bad "The machine does not have an IP address yet (it is still starting up). Try again: htb ip"
     return 1
+}
+
+cmd_host() {
+    [ "$#" -ge 1 ] || die "Usage: htb host <domain> <domain2> <domain3> ..."
+
+    local ip; ip=$(api GET "/machine/active" | jq -r '.info.ip // empty')
+    [ -n "$ip" ] && [ "$ip" != "null" ] || die "No active machine with an IP address. Spawn one: htb spawn <name>"
+
+    local domains="$*"
+    local entry="$ip    $domains"
+    local hosts="/etc/hosts"
+    local marker="HTB"
+    local pattern
+    pattern=$(printf '%s\n' "$@" | paste -sd '|')
+
+    if grep -qE "[[:space:]](${pattern})(\$|[[:space:]])" "$hosts"; then
+        sudo sed -i -E "s/.*[[:space:]](${pattern})(\$|[[:space:]].*)?\$/$entry/" "$hosts"
+        ok "Updated: $BOLD$domains$RST -> $GRN$BOLD$ip$RST"
+    elif grep -qF "$ip" "$hosts"; then
+        sudo sed -i "s/^${ip}[[:space:]].*/$entry/" "$hosts"
+        ok "IP $GRN$BOLD$ip$RST updated with domains: $domains"
+    else
+        if grep -qE "^#[[:space:]]*${marker}" "$hosts"; then
+            sudo sed -i -E "/^#[[:space:]]*${marker}/a ${entry}" "$hosts"
+            ok "Added after #HTB: $BOLD$entry$RST"
+        else
+            printf '\n#%s\n' "$marker" | sudo tee -a "$hosts" > /dev/null
+            printf '%s\n' "$entry"     | sudo tee -a "$hosts" > /dev/null
+            ok "Created #HTB section and added: $BOLD$entry$RST"
+        fi
+    fi
 }
 
 cmd_own() {
     local id flag diff="50"
     if [ -n "$2" ] && [[ ! "$1" =~ ^[a-f0-9]{30,}$ ]]; then
-        id=$(resolve_id "$1") || die "No encuentro la maquina '$1'"
+        id=$(resolve_id "$1") || die "Machine '$1' not found"
         flag="$2"; [ -n "$3" ] && diff="$3"
     else
         flag="$1"; [ -n "$2" ] && diff="$2"
         id=$(active_id)
-        [ -z "$id" ] && die "No hay maquina activa. Usa: htb own <nombre> <flag>"
+        [ -z "$id" ] && die "No active machine. Use: htb own <name> <flag>"
     fi
-    [ -z "$flag" ] && die "Falta la flag"
-    step "Enviando flag a maquina id $id $GRY(difficulty $diff)$RST"
+    [ -z "$flag" ] && die "Missing flag"
+    step "Submitting flag for machine ID $id $GRY(difficulty $diff)$RST"
     local out; out=$(api5 POST "/machine/own" "{\"flag\":\"$flag\",\"id\":$id,\"difficulty\":$diff}")
     local msg; msg=$(echo "$out" | jq -r '.message // .status // .')
     if echo "$msg" | grep -qiE "incorrect|invalid|wrong|not found|error|can ?not|cannot|accessed"; then
@@ -448,9 +528,9 @@ cmd_own() {
     printf '%s%s  %s%s\n' "$GRN$BOLD" "$I_FLAG" "$msg" "$RST"
 }
 
-# ================= VPN: perfiles y productos =================
+# ================= VPN: profiles and products =================
 
-# Alias que puede escribir el usuario -> producto de la API de HTB
+# Aliases the user can enter -> HTB API product
 vpn_product() {
     case "${1,,}" in
         labs|lab|machines|machine|vip|maquinas|maquina) printf 'labs' ;;
@@ -464,15 +544,15 @@ vpn_product() {
 }
 VPN_PRODUCTS=(labs starting_point fortresses release_arena competitive)
 
-# Los Pro Labs no se piden por ?product=, sino por id con su propio endpoint.
-# Resuelve un nombre o id de Pro Lab -> id numerico (lista si no encuentra).
+# Pro Labs are not requested via ?product=; they use an ID and their own endpoint.
+# Resolve a Pro Lab name or ID -> numeric ID (list available labs if no match is found).
 prolab_resolve() {
     local q="$1" json id
     json=$(api GET "/prolabs")
     [ "$(echo "$json" | jq -r '.status // empty')" = "true" ] \
-        || { bad "No puedo listar los Pro Labs (¿token?)" >&2; return 1; }
+        || { bad "Unable to list Pro Labs (check your token)" >&2; return 1; }
     if [ -z "$q" ]; then
-        bad "Indica el Pro Lab:  htb vpn prolab <nombre|id>" >&2
+        bad "Specify a Pro Lab:  htb vpn prolab <name|id>" >&2
         echo "$json" | jq -r '.data.labs[]? | "     \(.id)\t\(.name)"' | sort -n >&2
         return 1
     fi
@@ -482,14 +562,14 @@ prolab_resolve() {
     [ -z "$id" ] && id=$(echo "$json" | jq -r --arg q "$q" '.data.labs[]?
             | select(.name|ascii_downcase|contains($q|ascii_downcase)) | .id' | head -1)
     if [ -z "$id" ]; then
-        bad "No encuentro ningun Pro Lab que encaje con '$q'" >&2
+        bad "No Pro Lab found matching '$q'" >&2
         echo "$json" | jq -r '.data.labs[]? | "     \(.id)\t\(.name)"' | sort -n >&2
         return 1
     fi
     printf '%s' "$id"
 }
 
-# Patron de nombre de fichero para cada producto (para 'htb connect fortress')
+# Filename patterns for each product (for 'htb connect fortress')
 vpn_product_pat() {
     case "$1" in
         labs)           printf 'lab|machine|vip|dedivip|htb' ;;
@@ -504,10 +584,11 @@ vpn_product_pat() {
 
 # "remote edge-eu-fort-1.hackthebox.eu 1337" -> "edge-eu-fort-1.hackthebox.eu"
 ovpn_remote() { sed -n 's/^remote[[:space:]]\+\([^[:space:]]*\).*/\1/p' "$1" 2>/dev/null | head -1; }
+
 # ... -> "eu-fort-1"
 ovpn_slug()   { local h; h=$(ovpn_remote "$1"); h="${h%.hackthebox.*}"; printf '%s' "${h#edge-}"; }
 
-# Etiqueta legible a partir del nombre/slug del fichero
+# Human-readable label derived from the filename or slug
 ovpn_kind() {
     case "${1,,}" in
         *prolab*)          printf 'Pro Lab' ;;
@@ -522,14 +603,14 @@ ovpn_kind() {
     esac
 }
 
-# Lee una respuesta del usuario: del terminal real si se puede, si no de stdin
-# (asi funciona tambien dentro de $(...) y en entornos sin /dev/tty abrible)
+# Read user input from the actual terminal when possible, otherwise from stdin
+# (this also works inside $(...) and in environments where /dev/tty cannot be opened)
 ask() {
     if { : < /dev/tty; } 2>/dev/null; then read -r "$1" < /dev/tty
     else read -r "$1"; fi
 }
 
-# Recorta a <ancho> anadiendo elipsis (solo texto plano, sin ANSI)
+# Truncate text to <width>, appending an ellipsis (plain text only, without ANSI codes)
 trunc() {
     local t="$1" w="$2" e='…'
     [ "$ICONSET" = ascii ] && e='~'
@@ -551,17 +632,19 @@ find_ovpn_by_remote() {
     return 1
 }
 
-# Resuelve un argumento a la ruta de un .ovpn.
-# Acepta: ruta, nombre exacto, subcadena del nombre, o alias de producto.
-# rc 0 = una coincidencia en stdout | 1 = ninguna | 2 = varias, todas en stdout
+# Resolve an argument to the path of an .ovpn file.
+# Accepts: path, exact filename, partial filename, or product alias.
+# rc 0 = one match on stdout | 1 = no matches | 2 = multiple matches, all on stdout
 resolve_ovpn() {
     local q="$1" prod pat hits n f
     [ -n "$q" ] || return 1
-    # 1) nombre de perfil dentro de VPN_DIR (antes que la ruta relativa: si no,
-    #    'htb connect htb' cogeria el propio script al lanzarlo desde el repo)
+
+    # 1) Profile name inside VPN_DIR (before checking relative paths: otherwise,
+    #    'htb connect htb' could select the script itself when run from the repo)
     [ -f "$VPN_DIR/$q.ovpn" ]  && { printf '%s' "$VPN_DIR/$q.ovpn"; return 0; }
     [ -f "$VPN_DIR/$q" ]       && { printf '%s' "$VPN_DIR/$q"; return 0; }
-    # 2) ruta explicita, solo si lo parece
+
+    # 2) Explicit path, but only if it looks like one
     case "$q" in
         */*|*.ovpn) [ -f "$q" ] && { printf '%s' "$q"; return 0; } ;;
     esac
@@ -571,45 +654,47 @@ resolve_ovpn() {
     else
         pat=$(printf '%s' "$q" | sed 's/[][\.^$*+?(){}|\\]/\\&/g')
     fi
+
     hits=$(while IFS= read -r f; do
                [ -n "$f" ] || continue
                printf '%s' "$(basename "$f")" | grep -qiE "$pat" && printf '%s\n' "$f"
            done < <(list_ovpn))
+
     n=$(printf '%s' "$hits" | grep -c .)
     [ "$n" -eq 1 ] && { printf '%s' "$hits"; return 0; }
     [ "$n" -gt 1 ] && { printf '%s' "$hits"; return 2; }
     return 1
 }
 
-# Menu interactivo. La lista va a stderr; la ruta elegida a stdout.
+# Interactive menu. The list goes to stderr; the selected path goes to stdout.
 pick_ovpn() {
     local files=() f i n sel cur base
     while IFS= read -r f; do [ -n "$f" ] && files+=("$f"); done < <(list_ovpn)
     n=${#files[@]}
     if [ "$n" -eq 0 ]; then
-        bad "No hay ningun .ovpn en $VPN_DIR"
-        printf '   %sBajate uno:  htb vpn labs   |   htb vpn fortress%s\n' "$GRY" "$RST" >&2
+        bad "No .ovpn files found in $VPN_DIR"
+        printf '   %sDownload one:  htb vpn labs   |   htb vpn fortress%s\n' "$GRY" "$RST" >&2
         return 1
     fi
     [ "$n" -eq 1 ] && { printf '%s' "${files[0]}"; return 0; }
     if [ "$IS_TTY" != 1 ]; then
-        bad "Hay $n perfiles VPN. Indica cual: htb connect <perfil>" >&2
+        bad "There are $n VPN profiles. Specify one: htb connect <profile>" >&2
         return 1
     fi
     cur=$(htb_vpn_config) || cur=""
-    printf '\n  %sPerfiles VPN en %s%s\n\n' "$GRY" "$VPN_DIR" "$RST" >&2
+    printf '\n  %sVPN profiles in %s%s\n\n' "$GRY" "$VPN_DIR" "$RST" >&2
     for i in "${!files[@]}"; do
         f="${files[$i]}"; base=$(basename "$f")
         printf '    %s%s)%s ' "$BOLD$WHT" "$((i+1))" "$RST" >&2
         cell "$(ovpn_kind "$base $(ovpn_slug "$f")")" 16 >&2
         cell "$GRY$(ovpn_remote "$f")$RST" 40 >&2
-        [ "$f" = "$cur" ] && printf ' %s%s conectado%s' "$GRN" "$I_DOT" "$RST" >&2
+        [ "$f" = "$cur" ] && printf ' %s%s connected%s' "$GRN" "$I_DOT" "$RST" >&2
         printf '\n       %s%s%s\n' "$GRY" "$(trunc "$base" 56)" "$RST" >&2
     done
-    printf '\n  %sElige [1-%s]: %s' "$GRY" "$n" "$RST" >&2
+    printf '\n  %sChoose [1-%s]: %s' "$GRY" "$n" "$RST" >&2
     ask sel
     [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "$n" ] \
-        || { bad "Seleccion invalida." >&2; return 1; }
+        || { bad "Invalid selection." >&2; return 1; }
     printf '%s' "${files[$((sel-1))]}"
 }
 
@@ -617,9 +702,9 @@ cmd_vpns() {
     local files=() f i n cur base
     while IFS= read -r f; do [ -n "$f" ] && files+=("$f"); done < <(list_ovpn)
     n=${#files[@]}
-    title "Perfiles VPN   $VPN_DIR"
+    title "VPN Profiles   $VPN_DIR"
     if [ "$n" -eq 0 ]; then
-        warn "Ningun .ovpn todavia.  Bajate uno:  htb vpn labs  |  htb vpn fortress"
+        warn "No .ovpn files yet. Download one:  htb vpn labs  |  htb vpn fortress"
         return 0
     fi
     cur=$(htb_vpn_config) || cur=""
@@ -630,13 +715,13 @@ cmd_vpns() {
         cell "$BOLD$WHT$(trunc "${base%.ovpn}" 28)$RST" 30
         cell "$(ovpn_kind "$base $(ovpn_slug "$f")")" 16
         printf '%s%s%s' "$GRY" "$(ovpn_remote "$f")" "$RST"
-        [ "$f" = "$cur" ] && printf '  %s%s conectado%s' "$GRN" "$I_OK" "$RST"
+        [ "$f" = "$cur" ] && printf '  %s%s connected%s' "$GRN" "$I_OK" "$RST"
         echo
     done
-    printf '\n  %sConectar:  htb connect <perfil>   (o solo: htb connect)%s\n\n' "$GRY" "$RST"
+    printf '\n  %sConnect:  htb connect <profile>   (or simply: htb connect)%s\n\n' "$GRY" "$RST"
 }
 
-# Descarga el .ovpn de un producto (labs, fortresses, ...) desde la API.
+# Download a product's .ovpn file (labs, fortresses, ...) from the API.
 cmd_vpn() {
     local prod="" arg="" arg2="" out="" tcp=0 pick=0 a
     while [ $# -gt 0 ]; do
@@ -645,28 +730,28 @@ cmd_vpn() {
             --tcp)      tcp=1; shift ;;
             -p|--pick)  pick=1; shift ;;
             -h|--help)  vpn_help; return 0 ;;
-            -*)         die "Opcion desconocida: $1" ;;
+            -*)         die "Unknown option: $1" ;;
             *)          if [ -z "$arg" ]; then arg="$1"; else arg2="$arg2 $1"; fi; shift ;;
         esac
     done
     arg2="${arg2# }"
 
     if [ -z "$arg" ]; then cmd_vpn_products; return 0; fi
-    prod=$(vpn_product "$arg") || die "Producto desconocido: $arg  (${VPN_PRODUCTS[*]}, prolab)"
+    prod=$(vpn_product "$arg") || die "Unknown product: $arg  (${VPN_PRODUCTS[*]}, prolab)"
 
     local json
     if [ "$prod" = prolab ]; then
-        # Los Pro Labs van por id con endpoint propio: /connections/servers/prolab/<id>
+        # Pro Labs use an ID and a dedicated endpoint: /connections/servers/prolab/<id>
         local labid; labid=$(prolab_resolve "$arg2") || return 1
-        step "Consultando servidores del Pro Lab $BOLD$labid$RST ..."
+        step "Querying servers for Pro Lab $BOLD$labid$RST ..."
         json=$(api GET "/connections/servers/prolab/$labid")
         [ "$(echo "$json" | jq -r '.status // empty')" = "true" ] \
-            || die "La API no da servidores para el Pro Lab '$arg2' (¿no tienes acceso a ese lab?)"
+            || die "The API returned no servers for Pro Lab '$arg2' (do you have access to this lab?)"
     else
-        step "Consultando servidores de $BOLD$prod$RST ..."
+        step "Querying servers for $BOLD$prod$RST ..."
         json=$(api GET "/connections/servers?product=$prod")
         [ "$(echo "$json" | jq -r '.status // empty')" = "true" ] \
-            || die "La API no devuelve servidores para '$prod' (¿no tienes acceso a ese producto?)"
+            || die "The API returned no servers for '$prod' (do you have access to this product?)"
     fi
 
     local sid sname
@@ -675,36 +760,36 @@ cmd_vpn() {
         while IFS= read -r row; do [ -n "$row" ] && rows+=("$row"); done < <(
             echo "$json" | jq -r '.data.options // {} | to_entries[] | .value | to_entries[] | .value.servers // {}
                                   | to_entries[] | .value | "\(.id)\t\(.friendly_name)\t\(.location)\t\(.current_clients)\t\(.full)"')
-        [ "${#rows[@]}" -eq 0 ] && die "Sin servidores disponibles para '$prod'"
+        [ "${#rows[@]}" -eq 0 ] && die "No servers available for '$prod'"
         printf '\n' >&2
         for i in "${!rows[@]}"; do
             IFS=$'\t' read -r sid sname _ _ _ <<< "${rows[$i]}"
             local _loc _cli _full; IFS=$'\t' read -r _ _ _loc _cli _full <<< "${rows[$i]}"
             printf '    %s%s)%s ' "$BOLD$WHT" "$((i+1))" "$RST" >&2
             cell "$sname" 26 >&2
-            printf '%s%s  %s clientes%s' "$GRY" "$_loc" "$_cli" "$RST" >&2
-            [ "$_full" = "true" ] && printf ' %sLLENO%s' "$RED" "$RST" >&2
+            printf '%s%s  %s clients%s' "$GRY" "$_loc" "$_cli" "$RST" >&2
+            [ "$_full" = "true" ] && printf ' %sFULL%s' "$RED" "$RST" >&2
             echo >&2
         done
-        printf '\n  %sElige [1-%s]: %s' "$GRY" "${#rows[@]}" "$RST" >&2
+        printf '\n  %sChoose [1-%s]: %s' "$GRY" "${#rows[@]}" "$RST" >&2
         ask sel
         [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#rows[@]}" ] \
-            || die "Seleccion invalida."
+            || die "Invalid selection."
         IFS=$'\t' read -r sid sname _ <<< "${rows[$((sel-1))]}"
     else
         sid=$(echo   "$json" | jq -r '.data.assigned.id // empty')
         sname=$(echo "$json" | jq -r '.data.assigned.friendly_name // empty')
-        [ -n "$sid" ] || die "No hay servidor asignado para '$prod'. Usa --pick para elegir uno."
+        [ -n "$sid" ] || die "No server assigned for '$prod'. Use --pick to choose one."
     fi
 
     mkdir -p "$VPN_DIR"
-    local tmp; tmp=$(mktemp) || die "No puedo crear temporal"
-    step "Descargando $BOLD$sname$RST $GRY(id $sid$([ "$tcp" = 1 ] && echo ', tcp'))$RST ..."
+    local tmp; tmp=$(mktemp) || die "Failed to create a temporary file"
+    step "Downloading $BOLD$sname$RST $GRY(id $sid$([ "$tcp" = 1 ] && echo ', tcp'))$RST ..."
     curl -s --max-time 60 "$API/access/ovpnfile/$sid/$tcp" \
         -H "Authorization: Bearer $HTB_TOKEN" -H "User-Agent: $UA" -o "$tmp"
 
     if ! grep -q '^remote ' "$tmp" 2>/dev/null; then
-        bad "Descarga invalida (¿token caducado o servidor lleno?)"
+        bad "Invalid download (has the token expired or is the server full?)"
         head -c 200 "$tmp"; echo; rm -f "$tmp"; return 1
     fi
 
@@ -713,20 +798,20 @@ cmd_vpn() {
     if [ -n "$out" ]; then
         dest="$out"
     elif prev=$(find_ovpn_by_remote "$host"); then
-        dest="$prev"                       # ya lo tenias: lo actualizo en su sitio
+        dest="$prev"                       # already downloaded: update it in place
     else
         if [ "$(ovpn_kind "$slug")" = "-" ]; then dest="$VPN_DIR/${prod}_${slug}.ovpn"
         else                                       dest="$VPN_DIR/${slug}.ovpn"; fi
     fi
     mv "$tmp" "$dest" && chmod 600 "$dest"
-    ok "VPN guardada en $BOLD$dest$RST  $GRY($host)$RST"
-    printf '   %sConectar:%s htb connect %s%s%s\n' "$GRY" "$RST" "$BOLD$WHT" "$(basename "${dest%.ovpn}")" "$RST"
+    ok "VPN profile saved to $BOLD$dest$RST  $GRY($host)$RST"
+    printf '   %sConnect:%s htb connect %s%s%s\n' "$GRY" "$RST" "$BOLD$WHT" "$(basename "${dest%.ovpn}")" "$RST"
 }
 
-# Panorama: que producto tienes asignado a que servidor
+# Overview: which VPN product is assigned to which server
 cmd_vpn_products() {
     local p json name loc
-    title "Productos VPN de HackTheBox"
+    title "HackTheBox VPN Products"
     for p in "${VPN_PRODUCTS[@]}"; do
         json=$(api GET "/connections/servers?product=$p")
         printf '  '
@@ -737,24 +822,24 @@ cmd_vpn_products() {
             cell "$GRN$name$RST" 26
             printf '%s%s%s\n' "$GRY" "$loc" "$RST"
         else
-            printf '%ssin acceso%s\n' "$GRY" "$RST"
+            printf '%sno access%s\n' "$GRY" "$RST"
         fi
     done
-    printf '\n  %sDescargar:%s htb vpn fortress      %s(--pick para elegir servidor)%s\n' \
+    printf '\n  %sDownload:%s htb vpn fortress      %s(--pick to choose a server)%s\n' \
         "$GRY" "$RST" "$GRY" "$RST"
-    printf '  %sPro Labs:%s  htb vpn prolab <nombre>  %s(htb vpn prolab  lista los disponibles)%s\n' \
+    printf '  %sPro Labs:%s  htb vpn prolab <name>  %s(htb vpn prolab lists available labs)%s\n' \
         "$GRY" "$RST" "$GRY" "$RST"
-    printf '  %sAlias:%s labs, sp, fortress, arena, season\n\n' "$GRY" "$RST"
+    printf '  %sAliases:%s labs, sp, fortress, arena, season\n\n' "$GRY" "$RST"
 }
 
 vpn_help() {
-    printf '\n  %shtb vpn [producto] [opciones]%s\n\n' "$BOLD$WHT" "$RST"
-    printf '    %ssin producto%s   lista los productos y tu servidor asignado\n' "$GRY" "$RST"
-    printf '    %sproducto%s       labs | sp | fortress | arena | season\n' "$GRY" "$RST"
-    printf '    %sprolab <nom>%s   VPN de un Pro Lab (sin nombre: lista los que hay)\n' "$GRY" "$RST"
-    printf '    %s-p, --pick%s     elegir servidor concreto en vez del asignado\n' "$GRY" "$RST"
-    printf '    %s--tcp%s          bajar la variante TCP\n' "$GRY" "$RST"
-    printf '    %s-o <ruta>%s      guardar en una ruta concreta\n\n' "$GRY" "$RST"
+    printf '\n  %shtb vpn [product] [options]%s\n\n' "$BOLD$WHT" "$RST"
+    printf '    %sno product%s    list products and your assigned server\n' "$GRY" "$RST"
+    printf '    %sproduct%s      labs | sp | fortress | arena | season\n' "$GRY" "$RST"
+    printf '    %sprolab <name>%s VPN for a Pro Lab (without a name: list available labs)\n' "$GRY" "$RST"
+    printf '    %s-p, --pick%s   choose a specific server instead of the assigned one\n' "$GRY" "$RST"
+    printf '    %s--tcp%s        download the TCP variant\n' "$GRY" "$RST"
+    printf '    %s-o <path>%s    save to a specific path\n\n' "$GRY" "$RST"
 }
 
 as_root() {
@@ -773,12 +858,12 @@ htb_vpn_pid() {
     echo "$pid"
 }
 
-# Ruta del .ovpn con el que se lanzo un openvpn concreto
+# Path to the .ovpn file used to start a specific OpenVPN process
 openvpn_config_of() {
     tr '\0' '\n' < "/proc/$1/cmdline" 2>/dev/null | awk '/^--config$/{getline; print; exit}'
 }
 
-# Perfil que esta usando ahora mismo la VPN lanzada por htb
+# Profile currently used by the VPN connection started by htb
 htb_vpn_config() {
     local pid cfg
     pid=$(htb_vpn_pid) || return 1
@@ -793,7 +878,7 @@ openvpn_pids_for_config() {
     done
 }
 
-# openvpn lanzados con un .ovpn de nuestro VPN_DIR (por si se perdio el pidfile)
+# OpenVPN processes started with a .ovpn file from our VPN_DIR (in case the PID file was lost)
 openvpn_pids_in_vpndir() {
     local pid cfg
     for pid in $(pgrep -x openvpn 2>/dev/null); do
@@ -807,7 +892,7 @@ cmd_connect() {
     for a in "$@"; do
         case "$a" in
             -f|--force|-y|--yes) force=1 ;;
-            -*) die "Opcion desconocida: $a" ;;
+            -*) die "Unknown option: $a" ;;
             *)  [ -z "$f" ] && f="$a" ;;
         esac
     done
@@ -815,13 +900,13 @@ cmd_connect() {
     if [ -n "$f" ]; then
         target=$(resolve_ovpn "$f"); rc=$?
         if [ "$rc" = 2 ]; then
-            bad "'$f' coincide con varios perfiles:"
+            bad "'$f' matches multiple profiles:"
             printf '%s\n' "$target" | while IFS= read -r a; do
                 printf '   %s- %s%s\n' "$GRY" "$(basename "$a")" "$RST"; done
             return 1
         elif [ "$rc" != 0 ]; then
-            bad "No encuentro ningun .ovpn para '$f' en $VPN_DIR"
-            printf '   %sVer perfiles: htb vpns   |   Bajar uno: htb vpn %s%s\n' "$GRY" "$f" "$RST"
+            bad "No .ovpn file found for '$f' in $VPN_DIR"
+            printf '   %sList profiles: htb vpns   |   Download one: htb vpn %s%s\n' "$GRY" "$f" "$RST"
             return 1
         fi
     elif [ -n "$VPN_FILE" ]; then
@@ -829,40 +914,42 @@ cmd_connect() {
     else
         target=$(pick_ovpn) || return 1
     fi
-    [ -f "$target" ] || die "No existe el .ovpn: $target"
+    [ -f "$target" ] || die "File does not exist: $target"
 
     cur=$(htb_vpn_config) || cur=""
     if [ -n "$cur" ]; then
         if [ "$cur" = "$target" ]; then
-            ok "Ya conectado con $BOLD$(basename "$cur")$RST: $GRN$BOLD$(tun_ip)$RST"
+            ok "Already connected using $BOLD$(basename "$cur")$RST: $GRN$BOLD$(tun_ip)$RST"
             return 0
         fi
-        warn "Ya hay una VPN de htb activa: $BOLD$(basename "$cur")$RST"
+        warn "An htb VPN connection is already active: $BOLD$(basename "$cur")$RST"
         if [ "$force" = 1 ]; then
-            info "Cambiando a $(basename "$target") ..."
+            info "Switching to $(basename "$target") ..."
         elif [ "$IS_TTY" = 1 ]; then
-            printf '   %s¿Cambiar a %s? [s/N]: %s' "$GRY" "$(basename "$target")" "$RST"
+            printf '   %sSwitch to %s? [y/N]: %s' "$GRY" "$(basename "$target")" "$RST"
             ask ans
-            case "${ans,,}" in s|si|sí|y|yes) ;; *) info "Sin cambios."; return 0 ;; esac
+            case "${ans,,}" in y|yes|s|si|sí) ;; *) info "No changes made."; return 0 ;; esac
         else
-            bad "Usa -f para cambiar de VPN sin preguntar."; return 1
+            bad "Use -f to switch VPNs without prompting."
+            return 1
         fi
         cmd_disconnect || return 1
     elif ip a show tun0 &>/dev/null; then
-        ok "Ya hay tun0 levantado $GRY(VPN ajena a htb)$RST: $GRN$(tun_ip)$RST"
+        ok "tun0 is already up $GRY(VPN not managed by htb)$RST: $GRN$(tun_ip)$RST"
         return 0
     fi
 
-    step "Conectando $BOLD$(basename "$target")$RST $GRY(sudo)$RST"
+    step "Connecting $BOLD$(basename "$target")$RST $GRY(sudo)$RST"
     as_root openvpn --config "$target" --daemon --writepid "$PID_FILE" --log /tmp/htb_vpn.log
     for i in $(seq 1 15); do
         sleep 1
         if ip a show tun0 &>/dev/null; then
-            ok "VPN arriba $GRY($(ovpn_kind "$(basename "$target") $(ovpn_slug "$target")"))$RST: $GRN$BOLD$(tun_ip)$RST"
+            ok "VPN connected $GRY($(ovpn_kind "$(basename "$target") $(ovpn_slug "$target")"))$RST: $GRN$BOLD$(tun_ip)$RST"
             return 0
         fi
     done
-    bad "tun0 no aparece. Mira /tmp/htb_vpn.log"; tail -5 /tmp/htb_vpn.log
+    bad "tun0 did not appear. Check /tmp/htb_vpn.log"
+    tail -5 /tmp/htb_vpn.log
 }
 
 cmd_disconnect() {
@@ -875,33 +962,33 @@ cmd_disconnect() {
         n=$(printf '%s' "$pids" | grep -c .)
         if [ "$n" -eq 1 ]; then pid="$pids"
         elif [ "$n" -gt 1 ]; then
-            bad "Hay $n procesos openvpn de htb. Indica cual: htb disconnect <perfil>"
+            bad "There are $n htb OpenVPN processes. Specify which one: htb disconnect <profile>"
             pgrep -a -x openvpn >&2; return 1
         fi
     fi
     if [ -z "$pid" ]; then
         if pgrep -x openvpn &>/dev/null; then
-            warn "Hay openvpn corriendo, pero ninguno lo lanzo htb."
-            printf '   %sNo toco VPNs ajenas. Procesos actuales:%s\n' "$GRY" "$RST"
+            warn "OpenVPN is running, but htb did not start any of its processes."
+            printf '   %sLeaving other VPN connections untouched. Current processes:%s\n' "$GRY" "$RST"
             pgrep -a -x openvpn
             return 1
         fi
-        warn "No hay VPN de htb conectada."
+        warn "No htb VPN connection found."
         return 0
     fi
     cfg=$(openvpn_config_of "$pid")
-    step "Desconectando $BOLD${cfg:+$(basename "$cfg")}$RST $GRY(pid $pid, sudo)$RST"
+    step "Disconnecting $BOLD${cfg:+$(basename "$cfg")}$RST $GRY(pid $pid, sudo)$RST"
     as_root kill "$pid"
     for i in $(seq 1 15); do
         if [ ! -d "/proc/$pid" ]; then
             as_root rm -f "$PID_FILE"
-            ok "VPN desconectada (pid $pid terminado)."
-            ip a show tun0 &>/dev/null && warn "Ojo: tun0 sigue arriba (otra VPN activa)."
+            ok "VPN disconnected (process $pid terminated)."
+            ip a show tun0 &>/dev/null && warn "Note: tun0 is still up (another VPN may be active)."
             return 0
         fi
         sleep 1
     done
-    bad "El proceso $pid sigue vivo. Prueba: sudo kill -9 $pid"
+    bad "Process $pid is still running. Try: sudo kill -9 $pid"
     return 1
 }
 
@@ -911,29 +998,29 @@ cmd_vpnstatus() {
     cfg=$(htb_vpn_config) || cfg=""
     addr=$(tun_ip)
     if [ -n "$addr" ]; then
-        printf '%s%s%s  VPN conectada  %s%s%s\n' "$GRN" "$I_NET" "$RST" "$GRN$BOLD" "$addr" "$RST"
+        printf '%s%s%s  VPN connected  %s%s%s\n' "$GRN" "$I_NET" "$RST" "$GRN$BOLD" "$addr" "$RST"
         if [ -n "$cfg" ]; then
-            printf '   %sperfil:%s %s%s%s %s(%s)%s\n' "$GRY" "$RST" "$WHT" "$(basename "$cfg")" "$RST" \
+            printf '   %sprofile:%s %s%s%s %s(%s)%s\n' "$GRY" "$RST" "$WHT" "$(basename "$cfg")" "$RST" \
                 "$GRY" "$(ovpn_kind "$(basename "$cfg") $(ovpn_slug "$cfg")")" "$RST"
         fi
-        if [ -n "$pid" ]; then printf '   %sopenvpn de htb: pid %s%s\n' "$GRY" "$pid" "$RST"
-        else                   printf '   %stun0 arriba, pero no lo lanzo htb%s\n' "$GRY" "$RST"; fi
+        if [ -n "$pid" ]; then printf '   %shtb-managed openvpn: pid %s%s\n' "$GRY" "$pid" "$RST"
+        else                   printf '   %stun0 is up, but htb did not start it%s\n' "$GRY" "$RST"; fi
     else
-        printf '%s%s%s  Sin tun0 (VPN desconectada)  %s-> htb connect%s\n' \
+        printf '%s%s%s  No tun0 interface (VPN disconnected)  %s-> htb connect%s\n' \
             "$RED" "$I_NET" "$RST" "$GRY" "$RST"
     fi
 }
 
-# OJO: "fc-list | grep -q" rompe con 'set -o pipefail': grep sale al primer
-# match, fc-list recibe SIGPIPE y la tuberia devuelve error. grep -c lee todo.
+# NOTE: "fc-list | grep -q" breaks with 'set -o pipefail': grep exits on the first match,
+# fc-list receives SIGPIPE, causing the pipeline to return an error. grep -c reads all input.
 font_installed() {
     local n
     n=$(fc-list 2>/dev/null | grep -ci "$1 Nerd Font") || n=0
     [ "${n:-0}" -gt 0 ] 2>/dev/null
 }
 
-# Instala una Nerd Font sin tocar el gestor de paquetes:
-# funciona igual en Arch, Debian/Ubuntu, Fedora, Void, macOS...
+# Install a Nerd Font without using the system package manager:
+# works on Arch, Debian/Ubuntu, Fedora, Void, macOS, and more...
 cmd_font() {
     local name="${1:-Hack}"
     local ver="${HTB_NF_VERSION:-v3.4.0}"
@@ -945,101 +1032,103 @@ cmd_font() {
     dir="$dir/${name}NerdFont"
 
     if font_installed "$name"; then
-        ok "'$name Nerd Font' ya esta instalada."
-        printf '   %sSolo falta seleccionarla como fuente de tu terminal.%s\n' "$GRY" "$RST"
+        ok "'$name Nerd Font' is already installed."
+        printf '   %sYou only need to select it as your terminal font.%s\n' "$GRY" "$RST"
         return 0
     fi
 
-    command -v curl >/dev/null 2>&1 || die "Necesito curl"
-    tmp=$(mktemp -d) || die "No pude crear un directorio temporal"
+    command -v curl >/dev/null 2>&1 || die "curl is required"
+    tmp=$(mktemp -d) || die "Failed to create a temporary directory"
     # shellcheck disable=SC2064
     trap "rm -rf '$tmp'" RETURN
     zip="$tmp/$name.zip"
 
-    step "Descargando $name Nerd Font ($ver)..."
+    step "Downloading $name Nerd Font ($ver)..."
     if ! curl -fsSL --retry 2 --max-time 300 -o "$zip" "$url"; then
-        bad "No se pudo descargar $url"
-        printf '   %sComprueba el nombre. Lista: https://github.com/ryanoasis/nerd-fonts/releases%s\n' "$GRY" "$RST"
+        bad "Failed to download $url"
+        printf '   %sCheck the font name. Available fonts: https://github.com/ryanoasis/nerd-fonts/releases%s\n' "$GRY" "$RST"
         return 1
     fi
 
-    mkdir -p "$dir" || die "No pude crear $dir"
-    step "Extrayendo en $dir ..."
+    mkdir -p "$dir" || die "Failed to create $dir"
+    step "Extracting to $dir ..."
     if   command -v unzip  >/dev/null 2>&1; then unzip -oq "$zip" -d "$dir"
     elif command -v bsdtar >/dev/null 2>&1; then bsdtar -xf "$zip" -C "$dir"
     elif command -v python3 >/dev/null 2>&1; then
         python3 -c 'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$zip" "$dir"
     else
-        bad "Necesito unzip, bsdtar o python3 para extraer el zip"; return 1
+        bad "unzip, bsdtar, or python3 is required to extract the ZIP file"; return 1
     fi
 
-    # fuera de lo que no son fuentes
+    # Remove files that are not fonts
     find "$dir" -maxdepth 1 -type f \( -iname '*.md' -o -iname '*.txt' \) -delete 2>/dev/null
 
     if command -v fc-cache >/dev/null 2>&1; then
-        step "Actualizando cache de fuentes..."
+        step "Updating font cache..."
         fc-cache -f "$dir" >/dev/null 2>&1 || fc-cache -f >/dev/null 2>&1
     else
-        warn "No hay fc-cache (fontconfig). En macOS no hace falta."
+        warn "fc-cache (fontconfig) is not available. It is not required on macOS."
     fi
 
     if font_installed "$name"; then
-        ok "Instalada: $name Nerd Font"
+        ok "Installed: $name Nerd Font"
     else
-        ok "Ficheros copiados en $dir"
-        warn "fontconfig aun no la ve; abre una terminal nueva y reintenta 'htb icons'."
+        ok "Files copied to $dir"
+        warn "fontconfig cannot detect the font yet; open a new terminal and try 'htb icons' again."
     fi
 
-    printf '\n  %sSelecciona la fuente en tu terminal:%s\n' "$BOLD" "$RST"
+    printf '\n  %sSelect the font in your terminal settings:%s\n' "$BOLD" "$RST"
     printf '   %skitty%s        font_family %s NF\n'        "$CYN" "$RST" "$name"
     printf '   %salacritty%s    font.normal.family: "%s Nerd Font"\n' "$CYN" "$RST" "$name"
     printf '   %swezterm%s      font = wezterm.font("%s Nerd Font")\n' "$CYN" "$RST" "$name"
-    printf '   %sGNOME/Konsole%s  ajustes del perfil -> fuente personalizada\n\n' "$CYN" "$RST"
+    printf '   %sGNOME/Konsole%s  profile settings -> custom font\n\n' "$CYN" "$RST"
 }
 
 cmd_icons() {
-    printf '  Juego actual: %s%s%s   (forzar con HTB_ICONS=nerd|emoji|ascii)\n' "$BOLD$CYN" "$ICONSET" "$RST"
+    printf '  Current icon set: %s%s%s   (override with HTB_ICONS=nerd|emoji|ascii)\n' "$BOLD$CYN" "$ICONSET" "$RST"
     if [ "$ICONSET" != nerd ]; then
-        printf '  %sPara los iconos bonitos:%s htb font%s\n' "$GRY" "$YEL" "$RST"
+        printf '  %sFor fancy icons:%s htb font%s\n' "$GRY" "$YEL" "$RST"
     fi
     echo
-    printf '  %s %s %s %s %s   os\n' "$(os_icon windows)" "$(os_icon linux)" \
+    printf '  %s %s %s %s %s   operating systems\n' "$(os_icon windows)" "$(os_icon linux)" \
         "$(os_icon freebsd)" "$(os_icon macos)" "$(os_icon other)"
-    printf '  %s %s   own / no-own\n' "$(own_fmt true)" "$(own_fmt false)"
-    printf '  %s %s   blood / sin blood\n' "$(blood_fmt true)" "$(blood_fmt false)"
-    printf '  %s %s %s %s   mensajes\n' "$GRN$I_OK$RST" "$RED$I_NO$RST" "$YEL$I_WARN$RST" "$BLU$I_INFO$RST"
-    printf '  %s %s %s %s   dificultad\n' "$(diff_fmt Easy)" "$(diff_fmt Medium)" \
+    printf '  %s %s   own / not owned\n' "$(own_fmt true)" "$(own_fmt false)"
+    printf '  %s %s   blood / no blood\n' "$(blood_fmt true)" "$(blood_fmt false)"
+    printf '  %s %s %s %s   status messages\n' "$GRN$I_OK$RST" "$RED$I_NO$RST" "$YEL$I_WARN$RST" "$BLU$I_INFO$RST"
+    printf '  %s %s %s %s   difficulty\n' "$(diff_fmt Easy)" "$(diff_fmt Medium)" \
         "$(diff_fmt Hard)" "$(diff_fmt Insane)"
     echo
 }
 
-cmd_version() { printf 'htb %s%s%s  %s(iconos: %s)%s\n' "$BOLD$GRN" "$HTB_VERSION" "$RST" "$GRY" "$ICONSET" "$RST"; }
+cmd_version() { printf 'htb %s%s%s  %s(icons: %s)%s\n' "$BOLD$GRN" "$HTB_VERSION" "$RST" "$GRY" "$ICONSET" "$RST"; }
 
 usage() {
-    printf '\n  %s%shtb%s %s%s%s  %s- cliente HackTheBox%s\n' \
+    _banner
+    printf '\n  %s%shtb%s %s%s%s  %s- HackTheBox client%s\n' \
         "$BOLD" "$GRN" "$RST" "$GRY" "$HTB_VERSION" "$RST" "$GRY" "$RST"
-    printf '  %sUso: htb <comando> [argumentos]%s\n\n' "$GRY" "$RST"
+    printf '  %sUsage: htb <command> [arguments]%s\n\n' "$GRY" "$RST"
     local rows=(
-      "whoami\tQuien eres (token check)"
-      "list [N]\tUltimas N maquinas (default 15)"
-      "latest\tLa maquina mas reciente (release de hoy)"
-      "season\tMaquinas de la season activa"
-      "info <nombre|id>\tInfo de una maquina"
-      "active\tMaquina spawneada ahora mismo + IP"
-      "spawn <nombre|id>\tSpawnea y espera la IP"
-      "ip [nombre|id]\tEspera/imprime la IP de la activa"
-      "stop [nombre|id]\tPara la maquina (activa por defecto)"
-      "reset [nombre|id]\tResetea la maquina"
-      "own <flag> [diff]\tSube flag a la maquina ACTIVA"
-      "own <maq> <flag>\tSube flag a una maquina concreta"
-      "vpn [producto]\tDescarga el .ovpn (labs, sp, fortress, arena, prolab...)"
-      "vpns\tLista tus perfiles VPN locales"
-      "connect [perfil]\tConecta la VPN (menu si no dices cual)"
-      "disconnect\tDesconecta SOLO la VPN lanzada por htb"
-      "vpnstatus\tQue VPN esta conectada y con que perfil"
-      "icons\tMuestra el juego de iconos detectado"
-      "font [Hack]\tInstala una Nerd Font (Arch/Debian/Fedora/macOS)"
-      "version\tVersion de htb"
+    "whoami\tDisplay account information and validate the token"
+    "list [N]\tList the latest N machines (default: 15)"
+    "latest\tDisplay the most recently released machine"
+    "season\tList machines in the active season"
+    "info <name|id>\tDisplay machine information"
+    "active\tShow the currently spawned machine and its IP"
+    "spawn <name|id>\tSpawn a machine and wait for its IP"
+    "ip [name|id]\tWait for and display the active machine's IP"
+    "host [dom1 dom2 ...]\tAdd the active IP and domains to /etc/hosts"
+    "stop [name|id]\tStop a machine (active machine by default)"
+    "reset [name|id]\tReset a machine"
+    "own <flag> [diff]\tSubmit a flag for the active machine"
+    "own <machine> <flag>\tSubmit a flag for a specific machine"
+    "vpn [product]\tDownload a VPN profile (labs, sp, fortress, arena, prolab...)"
+    "vpns\tList local VPN profiles"
+    "connect [profile]\tConnect to a VPN (interactive menu if omitted)"
+    "disconnect\tDisconnect only VPNs launched by htb"
+    "vpnstatus\tShow VPN connection status and active profile"
+    "icons\tDisplay the detected icon set"
+    "font [Hack]\tInstall a Nerd Font (Arch/Debian/Fedora/macOS)"
+    "version\tDisplay the htb version"
     )
     local row cmd desc
     for row in "${rows[@]}"; do
@@ -1049,7 +1138,7 @@ usage() {
         printf '  %s%s%s\n' "$GRY" "$desc" "$RST"
     done
     printf '\n  %sFirst blood:%s  htb spawn X  ->  htb own <user>  ->  htb own <root>\n' "$YEL" "$RST"
-    printf '  %sApariencia:%s   HTB_ICONS=nerd|emoji|ascii   NO_COLOR=1\n\n' "$GRY" "$RST"
+    printf '  %sAppearance:%s   HTB_ICONS=nerd|emoji|ascii   NO_COLOR=1\n\n' "$GRY" "$RST"
 }
 
 # ================= Dispatch =================
@@ -1063,6 +1152,7 @@ case "$cmd" in
     active)        cmd_active "$@" ;;
     spawn|deploy)  cmd_spawn "$@" ;;
     ip)            cmd_ip "$@" ;;
+    host|hosts)      cmd_host "$@" ;;
     stop|kill|terminate) cmd_stop "$@" ;;
     reset)         cmd_reset "$@" ;;
     own|flag|submit) cmd_own "$@" ;;
@@ -1075,5 +1165,5 @@ case "$cmd" in
     font|setup-font) cmd_font "$@" ;;
     version|--version|-V) cmd_version ;;
     ""|-h|--help|help) usage ;;
-    *) bad "Comando desconocido: $cmd"; usage; exit 1 ;;
+    *) bad "Unknown command: $cmd"; usage; exit 1 ;;
 esac
