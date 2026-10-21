@@ -1,136 +1,154 @@
-# htb — Cliente de terminal para HackTheBox
+<div align="center">
+  <img src="https://cdn.simpleicons.org/hackthebox/9FEF00" width="250" alt="Hack The Box"/>
+    <img src="https://readme-typing-svg.demolab.com?font=Russo+One&weight=2000&size=180&duration=1&pause=999999&color=000000&center=false&vCenter=true&repeat=false&width=380&height=218&lines=HTB" alt="HTB"/> 
+<br><br>
+  
+&ensp;[<kbd> <br> Features <br> </kbd>](#features)&ensp;
+&ensp;[<kbd> <br> Installation <br> </kbd>](#installation)&ensp;
+&ensp;[<kbd> <br> Usage <br> </kbd>](#usage)&ensp;
+&ensp;[<kbd> <br> Commands <br> </kbd>](#detailed-commands)&ensp;
+&ensp;[<kbd> <br> Appearance <br> </kbd>](#appearance)&ensp;
+&ensp;[<kbd> <br> Configuration <br> </kbd>](#configuration-variables)&ensp;
+&ensp;[<kbd> <br> Contributions <br> </kbd>](#contributions)&ensp;
+<br>
+ <p>
+    <img src="https://img.shields.io/badge/Shell-Bash-4EAA25?style=flat-square&logo=gnubash&logoColor=white"
+         alt="Bash"/>
+    <img src="https://img.shields.io/badge/Platform-Linux-1793D1?style=flat-square&logo=linux&logoColor=white"
+         alt="Linux"/>
+    <img src="https://img.shields.io/badge/API-Hack%20The%20Box-9FEF00?style=flat-square&logo=hackthebox&logoColor=black"
+         alt="Hack The Box API"/>
+    <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square"
+         alt="MIT License"/>
+  </p>
+</div>
 
-> CLI minimalista en Bash para HackTheBox usando la **API oficial** (v4, con v5 para el envío de flags). Diseñado para ir rápido: spawnea máquinas, coge la IP, manda flags — sin salir de la terminal.
+> A minimalist Bash CLI for HackTheBox using the **official API** (v4, with v5 for flag submissions). Built for speed: spawn machines, grab IPs, and submit flags — all without leaving the terminal.
 
 ```
-htb spawn Connected      →  spawnea la máquina, espera la IP y la copia al portapapeles
-htb own <hash>           →  sube la flag a la máquina activa automáticamente
-htb season               →  lista las máquinas de la season con estado de bloods
+htb spawn Connected      →  spawns the machine, waits for its IP, and copies it to the clipboard
+htb own <hash>           →  submits the flag for the active machine automatically
+htb season               →  lists season machines and their blood status
 ```
 
----
+> [!NOTE]
+> `htb-cli` uses the official Hack The Box API. Some operations depend on your account permissions, API availability, and the current machine state.
 
-## Características
+## Features
 
-- **Solo necesita `curl` y `jq`** — sin Python, sin npm, sin dependencias raras
-- Resuelve nombres de máquinas a IDs automáticamente (busca en season → lista general → búsqueda libre)
-- Después del spawn, espera la IP y la copia al portapapeles (`xclip`)
-- Detecta la máquina activa automáticamente en `own`, `stop`, `reset` e `ip`
-- **Interfaz con iconos y colores autodetectados**: usa glifos Nerd Font si los tienes, emoji si no, y ASCII puro cuando la salida va a un fichero o `TERM` no es UTF-8
-- Iconos por sistema operativo (Windows/Linux/BSD/macOS), dificultad coloreada y marcas de *own* / *blood*
-- `htb font` instala una Nerd Font sin tocar el gestor de paquetes (igual en Arch, Debian, Fedora o macOS)
-- El token se guarda una vez en `~/.config/htb/token` o se pasa por variable de entorno
-- Gestión de VPN integrada: varios perfiles (Labs, Fortress, Starting Point…), descarga por producto, conexión con selector y cambio en caliente
+- **Only requires `curl` and `jq`** — no Python, no npm, no unusual dependencies
+- Automatically resolves machine names to IDs (searches the season list → general list → free-text search)
+- After spawning a machine, waits for its IP and copies it to the clipboard (`xclip`)
+- Automatically detects the active machine for `own`, `stop`, `reset`, and `ip`
+- **Auto-detected icons and colors**: uses Nerd Font glyphs if available, emoji otherwise, and plain ASCII when output is redirected to a file or `TERM` is not UTF-8
+- OS icons (Windows/Linux/BSD/macOS), colored difficulty levels, and *own* / *blood* indicators
+- `htb font` installs a Nerd Font without touching the package manager (works the same on Arch, Debian, Fedora, and macOS)
+- The token is stored once in `~/.config/htb/token` or provided through an environment variable
+- Integrated VPN management: multiple profiles (Labs, Fortress, Starting Point, etc.), downloads by product, connection selection menus, and seamless switching
 
----
+## Requirements
 
-## Requisitos
-
-| Herramienta | Para qué |
+| Tool | Purpose |
 |-------------|----------|
 | `bash` ≥ 4 | Shell |
-| `curl` | Llamadas a la API |
-| `jq` | Parseo de JSON |
-| `xclip` | Copiar IP al portapapeles tras spawn (opcional) |
-| `fontconfig` | Detectar/instalar Nerd Fonts (opcional) |
-| `unzip`, `bsdtar` o `python3` | Extraer la fuente en `htb font` (cualquiera de los tres) |
-| `openvpn` | VPN con `htb connect` (opcional) |
+| `curl` | API requests |
+| `jq` | JSON parsing |
+| `xclip` | Copies the IP to the clipboard after spawning a machine (optional) |
+| `fontconfig` | Detects and installs Nerd Fonts (optional) |
+| `unzip`, `bsdtar`, or `python3` | Extracts the font with `htb font` (any one of the three) |
+| `openvpn` | VPN connections with `htb connect` (optional) |
 
----
-
-## Instalación
+## Installation
 
 ```bash
-# 1. Clonar
+# 1. Clone the repository
 git clone https://github.com/C4sh3R/htb-cli.git
 cd htb-cli
 
-# 2. Instalar
+# 2. Install
 chmod +x htb
-cp htb ~/.local/bin/htb        # o: sudo cp htb /usr/local/bin/htb
+cp htb ~/.local/bin/htb        # or: sudo cp htb /usr/local/bin/htb
 
-# 3. Guardar el token de la API
+# 3. Save your API token
 mkdir -p ~/.config/htb
-echo "TU_TOKEN_AQUI" > ~/.config/htb/token
+echo "YOUR_TOKEN_HERE" > ~/.config/htb/token
 chmod 600 ~/.config/htb/token
 ```
 
-El token lo sacas de **HackTheBox → Account Settings → API Token**.
+Get your token from **HackTheBox → Account Settings → API Token**.
 
-### Alternativa: variable de entorno
+> [!CAUTION]
+> Keep your Hack The Box token private. Never commit it to the repository or share it in screenshots, logs, or public posts. If your token is exposed, revoke it and generate a new one.
+
+### Alternative: Environment variable
 
 ```bash
 export HTB_TOKEN="eyJ0eXAiOiJKV1..."
 ```
 
-### Carpeta de VPNs
+### VPN directory
 
-HTB da un `.ovpn` distinto por producto (Labs, Fortress, Starting Point, Release Arena, Pro Labs…). `htb` los guarda todos juntos en una carpeta y tú eliges cuál conectar.
+HTB provides a separate `.ovpn` file for each product (Labs, Fortress, Starting Point, Release Arena, Pro Labs, etc.). `htb` stores them all in a single directory, allowing you to choose which one to connect to.
 
-La carpeta se autodetecta entre `~/Desktop/c4sh3r/HTB/vpn`, `~/HTB/vpn` y `~/.config/htb/vpn` (la primera que exista). Para fijar la tuya:
-
-```bash
-export HTB_VPN_DIR="/ruta/a/tus/ovpn"
-```
-
-Si prefieres el comportamiento antiguo de un único archivo fijo, `HTB_VPN_FILE` sigue funcionando y salta el selector:
+The directory is automatically detected from `~/Desktop/c4sh3r/HTB/vpn`, `~/HTB/vpn`, and `~/.config/htb/vpn` (the first directory that exists). To specify your own:
 
 ```bash
-export HTB_VPN_FILE="/ruta/a/tu/machines.ovpn"
+export HTB_VPN_DIR="/path/to/your/ovpn/files"
 ```
 
----
+If you prefer the old behavior of using a single fixed file, `HTB_VPN_FILE` is still supported and skips the profile selector:
 
-## Uso
-
-```
-htb <comando> [argumentos]
+```bash
+export HTB_VPN_FILE="/path/to/your/machines.ovpn"
 ```
 
-### Referencia rápida
+## Usage
 
-| Comando | Descripción |
+```
+htb <command> [arguments]
+```
+
+### Quick reference
+
+| Command | Description |
 |---------|-------------|
-| `htb whoami` | Muestra tu usuario y estado VIP |
-| `htb list [N]` | Últimas N máquinas (por defecto 15), más recientes primero |
-| `htb latest` | La máquina más reciente (la release de hoy) |
-| `htb season` | Máquinas de la season activa con estado de bloods |
-| `htb info <nombre\|id>` | Perfil de una máquina: owns, rank y first bloods |
-| `htb active` | Máquina spawneada ahora mismo + IP |
-| `htb spawn <nombre\|id>` | Spawnea una máquina y espera la IP |
-| `htb ip [nombre\|id]` | Espera e imprime la IP de la máquina activa |
-| `htb stop [nombre\|id]` | Termina la máquina activa (o la que indiques) |
-| `htb reset [nombre\|id]` | Resetea la máquina activa (o la que indiques) |
-| `htb own <flag> [dif]` | Sube una flag a la máquina **activa** |
-| `htb own <nombre\|id> <flag> [dif]` | Sube una flag a una máquina concreta |
-| `htb vpn [producto]` | Descarga el `.ovpn` de un producto (`labs`, `sp`, `fortress`…) |
-| `htb vpns` | Lista tus perfiles VPN locales y marca el conectado |
-| `htb connect [perfil]` | Conecta la VPN (menú si no dices cuál) |
-| `htb disconnect [perfil]` | Desconecta **solo** la VPN lanzada por `htb` (por PID) |
-| `htb vpnstatus` | Qué VPN está conectada y con qué perfil |
-| `htb icons` | Muestra el juego de iconos detectado |
-| `htb font [Fuente]` | Instala una Nerd Font (por defecto `Hack`) |
-| `htb version` | Versión de `htb` |
+| `htb whoami` | Displays your username and VIP status |
+| `htb list [N]` | Lists the latest N machines (15 by default), newest first |
+| `htb latest` | Shows the latest machine release |
+| `htb season` | Lists machines in the active season and their blood status |
+| `htb info <name\|id>` | Machine profile: owns, rank, and first bloods |
+| `htb active` | Shows the currently spawned machine and its IP |
+| `htb spawn <name\|id>` | Spawns a machine and waits for its IP |
+| `htb ip [name\|id]` | Waits for and prints the active machine's IP |
+| `htb host [dom1 dom2] ...` | Adds domains to `/etc/hosts` using the active machine's IP |
+| `htb stop [name\|id]` | Stops the active machine or the specified one |
+| `htb reset [name\|id]` | Resets the active machine or the specified one |
+| `htb own <flag> [difficulty]` | Submits a flag for the **active** machine |
+| `htb own <name\|id> <flag> [difficulty]` | Submits a flag for a specific machine |
+| `htb vpn [product]` | Downloads a product's `.ovpn` file (`labs`, `sp`, `fortress`, etc.) |
+| `htb vpns` | Lists local VPN profiles and marks the connected one |
+| `htb connect [profile]` | Connects to the VPN (displays a menu if no profile is specified) |
+| `htb disconnect [profile]` | Disconnects **only** the VPN started by `htb` (by PID) |
+| `htb vpnstatus` | Shows the connected VPN and its profile |
+| `htb icons` | Displays the detected icon set |
+| `htb font [Font]` | Installs a Nerd Font (`Hack` by default) |
+| `htb version` | Displays the `htb` version |
 
----
-
-## Comandos en detalle
+## Detailed commands
 
 ### `htb whoami`
 
-Comprueba que el token funciona y muestra tu cuenta.
+Checks whether your token works and displays your account information.
 
 ```
 $ htb whoami
-Usuario: C4sh3R  (id 12345)
+User: C4sh3R  (id 12345)
 VIP: true  Server: eu-vip-2
 ```
 
----
-
 ### `htb list [N]`
 
-Las N máquinas más recientes. Muestra si ya tienes user (`U:1`) o root (`R:1`).
+Lists the N most recently released machines. Shows whether you have obtained the user (`U:1`) or root (`R:1`) flag.
 
 ```
 $ htb list 5
@@ -139,28 +157,24 @@ $ htb list 5
 904  Pupilpath  Windows Hard    2025-11-16  U:1 R:1
 ```
 
----
-
 ### `htb latest`
 
-La máquina más reciente de todas. Ideal para ver qué ha salido hoy.
+Shows the latest machine release. Useful for checking what has just been released.
 
 ```
 $ htb latest
-Mas reciente:
-  ID:         906
-  Nombre:     Connected
-  OS:         Linux
-  Dificultad: Easy
-  Release:    2025-11-30T20:00:00.000000Z
-  Activa:     1
+Latest release:
+   ID:         906
+   Name:       Connected
+   OS:         Linux
+   Difficulty: Easy
+   Release:    2025-11-30T20:00:00.000000Z
+   Active:     1
 ```
-
----
 
 ### `htb season`
 
-Todas las máquinas de la season activa con fecha de release y estado de bloods.
+Lists all machines in the active season, including their release dates and blood status.
 
 ```
 $ htb season
@@ -168,104 +182,114 @@ $ htb season
 905  VariaType  Linux  Medium  rel:2025-11-23  released:true  Ublood:true   Rblood:false
 ```
 
----
+### `htb spawn <name|id>`
 
-### `htb spawn <nombre|id>`
+Spawns a machine by name or numeric ID. The script resolves the name in this order:
 
-Spawnea por nombre o por ID numérico. El script resuelve el nombre en este orden:
+1. Season machine list (new releases appear here)
+2. General paginated list (the 100 most recent machines)
+3. HTB's free-text search endpoint
 
-1. Lista de máquinas de la season (las nuevas releases están aquí)
-2. Lista paginada general (top 100 recientes)
-3. Endpoint de búsqueda libre de HTB
-
-Tras el spawn, hace polling cada 2 segundos hasta que la IP está asignada, la imprime y la copia al portapapeles.
+After spawning, it polls every 2 seconds until an IP address is assigned, prints it, and copies it to the clipboard.
 
 ```
 $ htb spawn Connected
-[*] Spawneando maquina id 906 ...
+[*] Spawning machine ID 906 ...
 [+] Machine deployed
-[*] Esperando IP...
+[*] Waiting for IP...
 [+] IP: 10.129.9.213
-    (copiada al portapapeles)
+    (copied to clipboard)
 ```
 
----
+> [!TIP]
+> If you need to retrieve the IP later or spawned the machine from another terminal session, run `htb ip` instead of searching for the address manually in the Hack The Box interface.
 
 ### `htb ip`
 
-Espera hasta 80 segundos a que la máquina activa tenga IP. Útil si spawneaste en otra sesión.
+Waits up to 80 seconds for the active machine to receive an IP address. Useful if you spawned the machine in another session.
 
 ```
 $ htb ip
 [+] IP: 10.129.9.213
-    (copiada al portapapeles)
+    (copied to clipboard)
 ```
 
----
+### `htb host <domain> <domain2> <domain3> ...`
+
+Adds one or more domains to `/etc/hosts`, pointing them to the IP address of your active HackTheBox machine.
+
+The command automatically retrieves the active machine's IP and updates `/etc/hosts` accordingly. It checks whether the domains or IP already exist to avoid unnecessary duplicate entries.
+
+If an `#HTB` section exists, the entry is added there. Otherwise, the script creates the section automatically.
+
+**Example:**
+
+```bash
+# Add a domain to /etc/hosts
+htb host target.htb
+
+# Add multiple domains to the same machine
+htb host target.htb dev.target.htb admin.target.htb
+```
 
 ### `htb active`
 
-Muestra qué máquina tienes spawneada ahora mismo.
+Shows which machine you currently have spawned.
 
 ```
 $ htb active
-Activa: Connected (id 906)
+Active: Connected (id 906)
 IP: 10.129.9.213
-Expira: 2025-12-01 08:00:00
+Expires: 2025-12-01 08:00:00
 ```
 
----
+### `htb own <flag> [difficulty]`
 
-### `htb own <flag> [dificultad]`
-
-Sube una flag a la máquina activa. La dificultad es un número del 1 al 10 (por defecto 5).
+Submits a flag for the active machine. Difficulty is a number from 1 to 10 (5 by default).
 
 ```bash
-# Flag a la máquina activa (auto-detectada)
+# Submit a flag for the active machine (auto-detected)
 htb own 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
 
-# Con dificultad explícita
+# Specify the difficulty
 htb own 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d 3
 
-# A una máquina específica por nombre
+# Submit a flag for a specific machine by name
 htb own Connected 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
 ```
 
-Respuesta si es correcta:
+Successful submission:
 
 ```
 [+] Congratulations! You have got the user flag on Connected.
 ```
 
----
+> [!IMPORTANT]
+> Verify that the flag belongs to the intended machine before submitting it. If you omit the machine name or ID, the client uses the active machine when that behavior is supported.
 
 ### `htb reset`
 
-Resetea la máquina activa. Muy útil cuando algo se queda pillado durante la explotación.
+Resets the active machine. Useful when something gets stuck during exploitation.
 
 ```
 $ htb reset
 [+] The machine has been scheduled for reset.
 ```
 
----
-
 ### `htb stop`
 
-Termina la máquina y libera el slot de VPN.
+Stops the machine and frees up the VPN slot.
 
 ```
 $ htb stop
 [+] Machine stopped.
 ```
 
----
+### `htb info <name|id>`
 
-### `htb info <nombre|id>`
+Displays a machine's full profile: operating system, difficulty, points, IP address, your owns and completion times, your rank on the machine, and **who claimed the first bloods**.
 
-Perfil completo de una máquina: sistema, dificultad, puntos, IP, tus owns con el
-tiempo que tardaste, tu posición en la máquina y **quién se llevó las first bloods**.
-Si la blood es tuya, aparece marcada.
+If a blood belongs to you, it is marked accordingly.
 
 ```
 $ htb info Scaffold
@@ -273,320 +297,312 @@ $ htb info Scaffold
 │   Scaffold                                                          │
 ╰──────────────────────────────────────────────────────────────────────╯
    ID            978
-   Sistema         Windows
-   Dificultad    ● Hard
-   Puntos        40
-   IP            (no spawneada)
+   OS            Windows
+   Difficulty    ● Hard
+   Points        40
+   IP            (not spawned)
    Release       2026-09-05
-   Activa        ● si
+   Active        ● yes
 
-   User own        en 1H 2M 14S
-   Root own        en 0H 41M 54S
-   Tu rank       #16
+   User own        in 1H 2M 14S
+   Root own        in 0H 41M 54S
+   Your rank       #16
 
-   User blood     admiin  0H 28M 7S
-   Root blood     ahos6  0H 10M 46S
+   User blood      admiin  0H 28M 7S
+   Root blood      ahos6   0H 10M 46S
 ```
 
-El dueño de cada blood se compara con el ID del usuario autenticado, que se
-obtiene de `/user/info` en tiempo de ejecución: no hay ningún ID fijado en el
-código, así que cada uno ve marcadas sus propias bloods.
+Each blood owner is compared against the authenticated user's ID, retrieved from `/user/info` at runtime. No user ID is hardcoded, so everyone sees their own bloods marked.
 
----
+### `htb vpn [product]`
 
-### `htb vpn [producto]`
-
-Descarga el `.ovpn` del producto que le digas, usando el servidor que tengas asignado en HTB. Sin argumentos lista los productos y a qué servidor estás asignado en cada uno:
+Downloads the `.ovpn` file for the specified product, using the server assigned to you by HTB. With no arguments, it lists the products and the server assigned to each one:
 
 ```
 $ htb vpn
 ╭──────────────────────────────────────────╮
-│ Productos VPN de HackTheBox              │
+│ HackTheBox VPN Products                  │
 ╰──────────────────────────────────────────╯
-  labs                EU Machines VIP+ 5        EU
-  starting_point      EU StartingPoint 1        EU
-  fortresses          EU Fortress 1             EU
-  release_arena       sin acceso
+   labs                EU Machines VIP+ 5        EU
+   starting_point      EU StartingPoint 1        EU
+   fortresses          EU Fortress 1             EU
+   release_arena       no access
 ```
 
-Con un producto, lo descarga a tu carpeta de VPNs:
+Specify a product to download its profile to your VPN directory:
 
 ```
 $ htb vpn fortress
-🚀 Consultando servidores de fortresses ...
-🚀 Descargando EU Fortress 1 (id 429) ...
-✅ VPN guardada en ~/HTB/vpn/fortresses_eu-fort-1.ovpn  (edge-eu-fort-1.hackthebox.eu)
-   Conectar: htb connect fortresses_eu-fort-1
+🚀 Querying servers for fortresses ...
+🚀 Downloading EU Fortress 1 (id 429) ...
+✅ VPN profile saved to ~/HTB/vpn/fortresses_eu-fort-1.ovpn  (edge-eu-fort-1.hackthebox.eu)
+   Connect: htb connect fortresses_eu-fort-1
 ```
 
-Alias aceptados: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `arena`/`release`, `season`.
+Accepted aliases: `labs`/`machines`/`vip`, `sp`/`starting`, `fortress`, `arena`/`release`, `season`.
 
-**Pro Labs** van aparte (cada uno tiene su propia VPN). Se piden por nombre:
+**Pro Labs** are handled separately (each has its own VPN). They can be requested by name:
 
 ```
-$ htb vpn prolab                 # sin nombre: lista los Pro Labs disponibles
-$ htb vpn prolab trusted         # descarga la VPN del Pro Lab Trusted
-🚀 Consultando servidores del Pro Lab 70 ...
-🚀 Descargando EU Mini Pro Lab 1 (id 710) ...
-✅ VPN guardada en ~/HTB/vpn/eu-mini-prolab-1.ovpn  (edge-eu-mini-prolab-1.hackthebox.eu)
-   Conectar: htb connect eu-mini-prolab-1
+$ htb vpn prolab                 # without a name: list available Pro Labs
+$ htb vpn prolab trusted         # downloads the VPN for the Trusted Pro Lab
+🚀 Querying servers for Pro Lab 70 ...
+🚀 Downloading EU Mini Pro Lab 1 (id 710) ...
+✅ VPN profile saved to ~/HTB/vpn/eu-mini-prolab-1.ovpn  (edge-eu-mini-prolab-1.hackthebox.eu)
+   Connect: htb connect eu-mini-prolab-1
 ```
 
-También acepta el id (`htb vpn prolab 70`) y `--pick`/`--tcp` como los demás.
+You can also use the ID (`htb vpn prolab 70`) and `--pick`/`--tcp`, just like with other products.
 
-| Opción | Qué hace |
+| Option | Description |
 |---|---|
-| `-p`, `--pick` | Menú para elegir un servidor concreto en vez del asignado |
-| `--tcp` | Descarga la variante TCP |
-| `-o <ruta>` | Guarda en una ruta concreta |
+| `-p`, `--pick` | Displays a menu to select a specific server instead of the assigned one |
+| `--tcp` | Downloads the TCP variant |
+| `-o <path>` | Saves the profile to a specific path |
 
-El nombre del archivo se deriva del servidor (`eu-fort-1`, `eu-dedivip-5`…). Si ya tenías un `.ovpn` de ese mismo servidor, **actualiza ese archivo en su sitio** en vez de crear un duplicado.
-
----
+The filename is derived from the server (`eu-fort-1`, `eu-dedivip-5`, etc.). If you already have an `.ovpn` file for that server, **the existing file is updated in place** instead of creating a duplicate.
 
 ### `htb vpns`
 
-Lista los `.ovpn` de tu carpeta, con el tipo de lab que es cada uno y cuál está conectado ahora:
+Lists the `.ovpn` files in your VPN directory, identifies each lab type, and marks the currently connected profile:
 
 ```
 $ htb vpns
 ╭──────────────────────────────────────────╮
-│ Perfiles VPN   ~/HTB/vpn                 │
+│ VPN Profiles   ~/HTB/vpn                 │
 ╰──────────────────────────────────────────╯
-  ·  eu-starting-point-1-dhcp   Starting Point  edge-eu-starting-point-1-dhcp.hackthebox.eu
-  ●  fortresses_eu-fort-1       Fortress        edge-eu-fort-1.hackthebox.eu   ✅ conectado
-  ·  htb                        Labs VIP+       edge-eu-dedivip-5.hackthebox.eu
+ ·  eu-starting-point-1-dhcp   Starting Point  edge-eu-starting-point-1-dhcp.hackthebox.eu
+ ●  fortresses_eu-fort-1       Fortress        edge-eu-fort-1.hackthebox.eu   ✅ connected
+ ·  htb                        Labs VIP+       edge-eu-dedivip-5.hackthebox.eu
 ```
 
----
+### `htb connect [profile]`
 
-### `htb connect [perfil]`
+Connects to the VPN using `openvpn --daemon` and waits up to 15 seconds for `tun0` to come up. Saves the process PID to `/run/htb-openvpn.pid` (`HTB_VPN_PID_FILE`) so that `htb disconnect` knows exactly which process it started.
 
-Conecta la VPN con `openvpn --daemon` y espera hasta 15 segundos a que `tun0` suba. Guarda el PID del proceso en `/run/htb-openvpn.pid` (`HTB_VPN_PID_FILE`) para que `htb disconnect` sepa exactamente cuál es *su* proceso.
-
-El perfil se puede escribir de varias formas — todas estas valen:
+You can specify the profile in several ways — all of these work:
 
 ```bash
-htb connect fortress                  # alias de producto
-htb connect fort                      # trozo del nombre
-htb connect fortresses_eu-fort-1      # nombre del archivo
-htb connect ~/vpn/mi-config.ovpn      # ruta directa
+htb connect fortress                  # product alias
+htb connect fort                      # partial name
+htb connect fortresses_eu-fort-1      # filename
+htb connect ~/vpn/my-config.ovpn      # direct path
 ```
 
-Sin argumento, si tienes más de un `.ovpn` te saca un menú:
+Without an argument, if you have more than one `.ovpn` file, a menu is displayed:
 
 ```
 $ htb connect
 
-  Perfiles VPN en ~/HTB/vpn
+   VPN profiles in ~/HTB/vpn
 
-    1) Starting Point  edge-eu-starting-point-1-dhcp.hackthebox.eu
-       eu-starting-point-1-dhcp.ovpn
-    2) Fortress        edge-eu-fort-1.hackthebox.eu
-       fortresses_eu-fort-1.ovpn
-    3) Labs VIP+       edge-eu-dedivip-5.hackthebox.eu
-       htb.ovpn
+   1) Starting Point  edge-eu-starting-point-1-dhcp.hackthebox.eu
+      eu-starting-point-1-dhcp.ovpn
+   2) Fortress        edge-eu-fort-1.hackthebox.eu
+      fortresses_eu-fort-1.ovpn
+   3) Labs VIP+       edge-eu-dedivip-5.hackthebox.eu
+      htb.ovpn
 
-  Elige [1-3]: 2
-🚀 Conectando fortresses_eu-fort-1.ovpn (sudo)
-✅ VPN arriba (Fortress): 10.10.15.177/23
+   Choose [1-3]: 2
+🚀 Connecting fortresses_eu-fort-1.ovpn (sudo)
+✅ VPN connected (Fortress): 10.10.15.177/23
 ```
 
-Solo mantiene **una** VPN de HTB a la vez. Si ya hay una conectada y pides otra, te avisa y pregunta antes de cambiar (`-f` para no preguntar):
+Only **one HTB VPN connection** is managed at a time. If one is already connected and you request another, the script warns you and asks before switching (`-f` skips the prompt):
 
 ```
 $ htb connect labs -f
-⚠️  Ya hay una VPN de htb activa: fortresses_eu-fort-1.ovpn
-📌 Cambiando a htb.ovpn ...
-🚀 Desconectando fortresses_eu-fort-1.ovpn (pid 20999, sudo)
-✅ VPN desconectada (pid 20999 terminado).
-🚀 Conectando htb.ovpn (sudo)
-✅ VPN arriba (Labs VIP+): 10.10.14.73/23
+⚠️  An htb VPN connection is already active: fortresses_eu-fort-1.ovpn
+📌 Switching to htb.ovpn ...
+🚀 Disconnecting fortresses_eu-fort-1.ovpn (pid 20999, sudo)
+✅ VPN disconnected (process 20999 terminated).
+🚀 Connecting htb.ovpn (sudo)
+✅ VPN connected (Labs VIP+): 10.10.14.73/23
 ```
 
-Si el perfil que pides no existe, o es ambiguo, te lo dice sin tocar nada:
+If the requested profile does not exist or the name is ambiguous, the script reports it without changing anything:
 
 ```
 $ htb connect eu
-❌ 'eu' coincide con varios perfiles:
+❌ 'eu' matches multiple profiles:
    - eu-starting-point-1-dhcp.ovpn
    - fortresses_eu-fort-1.ovpn
 ```
 
-Si guardas tu contraseña de sudo en `~/.config/htb/sudo.pass`, la conexión es completamente no interactiva:
+If you save your sudo password in `~/.config/htb/sudo.pass`, the connection can run without interactive password prompts:
 
 ```bash
-echo "tu_password_sudo" > ~/.config/htb/sudo.pass
+echo "your_sudo_password" > ~/.config/htb/sudo.pass
 chmod 600 ~/.config/htb/sudo.pass
 ```
 
----
+> [!WARNING]
+> Switching VPN profiles may interrupt your current connection. Save your work and make sure you no longer need the existing VPN session before confirming a switch.
 
-### `htb disconnect [archivo.ovpn]`
+> [!CAUTION]
+> The `sudo.pass` file contains a sensitive password. Never commit it to Git or share it. Use restrictive file permissions and avoid storing your password if you do not need this feature.
 
-Corta **únicamente** la VPN que levantó `htb`: lee el PID de `/run/htb-openvpn.pid`, comprueba que ese proceso siga vivo y sea realmente un `openvpn`, y lo mata. Nunca hace `pkill openvpn`, así que otras sesiones VPN del sistema (trabajo, otro lab, otro `.ovpn`) siguen intactas. Usa `~/.config/htb/sudo.pass` si existe para no pedir contraseña.
+### `htb disconnect [file.ovpn]`
 
-```
-$ htb disconnect
-[*] Desconectando VPN de htb (pid 4821, sudo)...
-[+] VPN desconectada (pid 4821 terminado).
-```
-
-Si no hay pidfile válido (por ejemplo, una VPN levantada con una versión anterior), busca procesos `openvpn` lanzados con algún `.ovpn` de tu carpeta de VPNs (o con el perfil que le pases). Si encuentra exactamente uno, lo mata; si hay varios, o si los `openvpn` en marcha no son suyos, no toca nada y te los lista:
+Disconnects **only** the VPN started by `htb`: reads the PID from `/run/htb-openvpn.pid`, checks that the process is still running and is actually an `openvpn` process, then terminates it. It never runs `pkill openvpn`, so other system VPN sessions (work, another lab, another `.ovpn` file) remain untouched. It uses `~/.config/htb/sudo.pass` if available to avoid prompting for a password.
 
 ```
 $ htb disconnect
-[*] Hay openvpn corriendo, pero ninguno lo lanzo htb.
-    No toco VPNs ajenas. Procesos actuales:
+[*] Disconnecting htb VPN (pid 4821, sudo)...
+[+] VPN disconnected (process 4821 terminated).
+```
+
+If there is no valid PID file (for example, a VPN started with an older version), the script searches for `openvpn` processes launched with an `.ovpn` file from your VPN directory (or the profile you specify). If it finds exactly one, it terminates it. If there are multiple processes, or if the running OpenVPN processes do not belong to `htb`, it leaves them untouched and lists them:
+
+```
+$ htb disconnect
+[*] OpenVPN is running, but htb did not start any of its processes.
+    Leaving other VPN connections untouched. Current processes:
 3390 openvpn --config /home/user/work.ovpn --daemon
 ```
 
----
-
 ### `htb vpnstatus`
 
-Comprueba si `tun0` está activo y con qué perfil.
+Checks whether `tun0` is active and which profile is being used.
 
 ```
 $ htb vpnstatus
-🌐  VPN conectada  10.10.15.177/23
-   perfil: fortresses_eu-fort-1.ovpn (Fortress)
-   openvpn de htb: pid 20999
+🌐  VPN connected  10.10.15.177/23
+   profile: fortresses_eu-fort-1.ovpn (Fortress)
+   htb OpenVPN process: pid 20999
 ```
 
 ```
 $ htb vpnstatus
-[+] VPN conectada: 10.10.14.5/23
-    (openvpn de htb: pid 4821)
+[+] VPN connected: 10.10.14.5/23
+    (htb OpenVPN process: pid 4821)
 ```
 
 ---
 
-## Workflow típico — First Blood
+## Typical workflow — First Blood
 
 ```bash
-# 1. Conectar VPN (una vez por sesión)
+# 1. Connect to the VPN (once per session)
 htb connect
 
-# 2. Ver qué ha salido
+# 2. Check the latest releases
 htb latest
 htb season
 
-# 3. Spawnear
+# 3. Spawn a machine
 htb spawn Connected
 
-# 4. ... hackear ...
+# 4. ... hack away ...
 
-# 5. Subir flags
+# 5. Submit flags
 htb own <hash_user>
 htb own <hash_root>
 
-# 6. Limpiar
+# 6. Clean up
 htb stop
-htb disconnect   # cortar la VPN al terminar
+htb disconnect   # disconnect from the VPN when finished
 ```
 
----
-
-## Ejemplos de uso frecuentes
+## Common usage examples
 
 ```bash
-# Ver si tienes la VPN activa
+# Check whether the VPN is connected
 htb vpnstatus
 
-# Spawnear por nombre o por ID
+# Spawn by name or ID
 htb spawn 906
 htb spawn Connected
 
-# Ver la máquina que tienes ahora mismo
+# Check the currently active machine
 htb active
 
-# Resetear si la máquina se ha quedado pillada
+# Reset a machine if it gets stuck
 htb reset
 
-# Subir flag con dificultad baja (era fácil)
+# Submit a flag with a low difficulty rating (it was easy)
 htb own abc123... 2
 
-# Subir flag a una máquina concreta sin que sea la activa
+# Submit a flag for a specific machine without making it the active one
 htb own VariaType def456... 7
 
-# Listar las últimas 30 máquinas
+# List the 30 latest machines
 htb list 30
 
-# Buscar info de cualquier máquina
+# Look up information about any machine
 htb info "Lame"
 htb info 1
 ```
 
----
+## Token security
 
-## Seguridad del token
+The token is read in the following order:
 
-El token se lee en este orden:
+1. The `$HTB_TOKEN` environment variable
+2. The `~/.config/htb/token` file (or `$HTB_TOKEN_FILE`)
 
-1. Variable de entorno `$HTB_TOKEN`
-2. Fichero `~/.config/htb/token` (o `$HTB_TOKEN_FILE`)
-
-Asegúrate de que el fichero solo lo puede leer tu usuario:
+Make sure the file can only be read by your user:
 
 ```bash
 chmod 600 ~/.config/htb/token
 ```
 
----
+> [!IMPORTANT]
+> Adding a file to `.gitignore` does not remove secrets that were already committed. If you accidentally publish a credential, revoke it and review the repository history.
 
-## Apariencia
+## Appearance
 
-`htb` decide solo cómo pintarse, en este orden:
+`htb` automatically chooses how to render its output, in this order:
 
-| Modo | Cuándo se elige | Ejemplo |
-|------|-----------------|---------|
-| `nerd` | Hay una Nerd Font instalada (`fc-list`) | ` `  ` ` |
-| `emoji` | Terminal UTF-8 sin Nerd Font | `🪟` `🐧` |
-| `ascii` | Sin UTF-8, o la salida va a un fichero/pipe | `WIN` `LNX` |
+| Mode | When it is selected | Example |
+|------|---------------------|---------|
+| `nerd` | A Nerd Font is installed (`fc-list`) | ` `  ` ` |
+| `emoji` | UTF-8 terminal without a Nerd Font | `🪟` `🐧` |
+| `ascii` | No UTF-8 support, or output is redirected to a file/pipe | `WIN` `LNX` |
 
-Los anchos de columna se calculan sobre el ancho **visible** real (ignorando los
-códigos ANSI y contando los emoji como dos columnas), así que la tabla queda
-alineada en los tres modos.
+Column widths are calculated using the actual **visible** width (ignoring ANSI codes and counting emoji as two columns), keeping the tables aligned in all three modes.
 
 ```bash
-htb icons                 # ver qué modo se ha detectado
-HTB_ICONS=emoji htb list  # forzar un modo concreto
-NO_COLOR=1 htb list       # sin color
+htb icons                 # show the detected mode
+HTB_ICONS=emoji htb list  # force a specific mode
+NO_COLOR=1 htb list       # disable colors
 ```
 
-### `htb font [Fuente]`
+### `htb font [Font]`
 
-Instala una Nerd Font en el directorio de fuentes del usuario y refresca la caché.
-No usa `pacman`, `apt` ni `dnf`, así que funciona igual en cualquier distro:
+Installs a Nerd Font in the user's font directory and refreshes the font cache. It does not use `pacman`, `apt`, or `dnf`, so it works the same on any distribution:
 
 ```bash
-htb font              # instala Hack Nerd Font
+htb font              # installs Hack Nerd Font
 htb font JetBrainsMono
 ```
 
-Descarga desde las [releases de ryanoasis/nerd-fonts](https://github.com/ryanoasis/nerd-fonts/releases)
-a `~/.local/share/fonts` (o `~/Library/Fonts` en macOS), extrae con `unzip`,
-`bsdtar` o `python3` —lo que haya— y ejecuta `fc-cache`. Después hay que
-seleccionar la fuente en los ajustes de la terminal; el comando imprime la línea
-de configuración para kitty, alacritty y wezterm.
+Downloads from the [ryanoasis/nerd-fonts releases](https://github.com/ryanoasis/nerd-fonts/releases) to `~/.local/share/fonts` (or `~/Library/Fonts` on macOS), extracts using `unzip`, `bsdtar`, or `python3` — whichever is available — and runs `fc-cache`. You then need to select the font in your terminal settings; the command prints the configuration line for kitty, alacritty, and wezterm.
 
----
+## Configuration variables
 
-## Variables de configuración
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HTB_TOKEN` | — | API token (environment variable override) |
+| `HTB_TOKEN_FILE` | `~/.config/htb/token` | Path to the token file |
+| `HTB_VPN_FILE` | *(hardcoded path)* | Default VPN configuration for `htb connect` |
+| `HTB_VPN_PID_FILE` | `/run/htb-openvpn.pid` | PID of the `openvpn` process started by `htb` (used by `htb disconnect`) |
+| `HTB_ICONS` | *(auto-detected)* | Forces the icon set: `nerd`, `emoji`, or `ascii` |
+| `NO_COLOR` | — | If set, disables colors |
+| `HTB_NF_VERSION` | `v3.4.0` | Nerd Fonts release downloaded by `htb font` |
 
-| Variable | Por defecto | Descripción |
-|----------|-------------|-------------|
-| `HTB_TOKEN` | — | Token de la API (override por env) |
-| `HTB_TOKEN_FILE` | `~/.config/htb/token` | Ruta al fichero de token |
-| `HTB_VPN_FILE` | *(ruta hardcodeada)* | Config VPN por defecto para `htb connect` |
-| `HTB_VPN_PID_FILE` | `/run/htb-openvpn.pid` | PID del `openvpn` lanzado por `htb` (lo usa `htb disconnect`) |
-| `HTB_ICONS` | *(autodetección)* | Fuerza el juego de iconos: `nerd`, `emoji` o `ascii` |
-| `NO_COLOR` | — | Si está definida, desactiva el color |
-| `HTB_NF_VERSION` | `v3.4.0` | Release de nerd-fonts que descarga `htb font` |
+## License
+This project is distributed under the MIT License - use it however you like.
 
----
+See [`LICENSE`](LICENSE) for the full license text.
 
-## Licencia
+## Contributions
+ 
+Feel free to fork this repository and contribute improvements through pull requests. New content, write-ups, tools, and bug fixes are always welcome. If you find this project useful, consider giving it a ⭐ and sharing your feedback by opening an issue or submitting a pull request.
 
-MIT — úsalo como quieras.
+<div align="center">
+  
+![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&size=18&pause=1000&color=00FFB3&center=true&vCenter=true&width=500&lines=All+contributions+are+welcome!;Fork+it.+Hack+it.+PR+it.;Knowledge+shared+is+knowledge+multiplied.)
+
+<sub>Made with ❤️ by <a href="https://c4sh3r.dev/">C4sh$r</a> · htb-cli © 2026</sub>
+</div>
